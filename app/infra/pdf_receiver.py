@@ -223,16 +223,14 @@ class PDFReceiver:
                                 elements.append(PageElement("text", page_no, para.strip()))
                         text_buffer.clear()
                     
-                    # 이미지 플레이스홀더 추가
+                    # 이미지 데이터 추가 (플레이스홀더는 semantic_chunker가 자동 추가)
                     img_bytes, caption = data
                     img_id = f"IMG_{page_no}_{image_counter}"
                     
-                    print(f"[PDFReceiver] 이미지 플레이스홀더 생성: {img_id} (y={y_pos:.1f})", flush=True)
+                    print(f"[PDFReceiver] 이미지 추가: {img_id} (y={y_pos:.1f})", flush=True)
                     
-                    # 플레이스홀더를 텍스트로 추가
-                    elements.append(PageElement("text", page_no, f"[{img_id}]"))
-                    
-                    # 이미지 데이터 추가
+                    # ✅ 이미지 데이터만 추가 (플레이스홀더는 별도 추가 안 함)
+                    # semantic_chunker가 figure를 보고 [IMG_X_Y] 플레이스홀더를 텍스트에 자동 삽입
                     elements.append(PageElement("figure", page_no, img_bytes, caption=caption or "Figure", id=img_id))
                     
                     image_counter += 1

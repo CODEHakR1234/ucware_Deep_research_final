@@ -22,7 +22,14 @@ from app.domain.interfaces import (
     LlmChainIF,
     SemanticGrouperIF,
 )
-from app.prompts import PROMPT_TUTORIAL, PROMPT_TUTORIAL_TRANSLATE
+from app.prompts import (
+    PROMPT_TUTORIAL,
+    PROMPT_TUTORIAL_TRANSLATE,
+    PROMPT_TUTORIAL_SECTION_WITH_IMAGES,
+    PROMPT_TUTORIAL_SECTION_NO_IMAGES,
+    PROMPT_TUTORIAL_TRANSLATE_WITH_IMAGES,
+    PROMPT_TUTORIAL_TRANSLATE_NO_IMAGES,
+)
 
 # ──────────────── 환경변수 설정 ────────────────
 DEBUG = os.getenv("DEBUG_TUTORIAL", "false").lower() == "true"
@@ -168,15 +175,6 @@ class GuideGraphBuilder:
             st.log.append(f"청크 그룹화 완료: {len(groups)}개 그룹")
             print(f"[GuideGraphBuilder] 청크 그룹화 완료: {len(groups)}개 그룹", flush=True)
             
-            # ✅ 실제로 존재하는 이미지 ID 목록 추출
-            available_image_ids = set()
-            for chunk in st.chunks:
-                for img_id, _ in chunk.figs:
-                    available_image_ids.add(img_id)
-            
-            available_ids_str = ", ".join(sorted(available_image_ids)) if available_image_ids else "NONE"
-            print(f"[GuideGraphBuilder] 사용 가능한 이미지 ID: {available_ids_str}", flush=True)
-            
             # 병렬 섹션 생성
             async def _generate_one_section(grp, idx):
                 """단일 섹션을 생성한다."""
@@ -184,16 +182,42 @@ class GuideGraphBuilder:
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 그룹 {idx} 처리 중: {len(grp)}개 청크", flush=True)
                     
+                    # ✅ 이 그룹(섹션)에서 실제로 사용 가능한 이미지만 추출
+                    section_image_ids = set()
+                    for chunk in grp:
+                        for img_id, _ in chunk.figs:
+                            section_image_ids.add(img_id)
+                    
+                    section_ids_str = ", ".join(sorted(section_image_ids)) if section_image_ids else "NONE"
+                    
+                    # ✅ 청크 텍스트에 플레이스홀더가 포함되어 있는지 확인
+                    chunks_text_full = "\n".join(c.text for c in grp)
+                    placeholders_in_text = re.findall(r'\[IMG_\d+_\d+\]', chunks_text_full)
+                    
+                    print(f"[GuideGraphBuilder] 그룹 {idx}: 청크 {len(grp)}개, 이미지 {len(section_image_ids)}개", flush=True)
+                    if placeholders_in_text:
+                        print(f"[GuideGraphBuilder]   텍스트에 포함된 플레이스홀더: {placeholders_in_text[:3]}", flush=True)
+                    
+                    if DEBUG and section_image_ids:
+                        print(f"[GuideGraphBuilder] 그룹 {idx}의 이미지: {section_ids_str}", flush=True)
+                    
                     # 안전한 트러케이션으로 이미지 참조 보존
                     chunks_text = self._safe_truncate("\n".join(c.text for c in grp), 6_000)
                     
-                    # ✅ 프롬프트에 실제 이미지 ID 목록 추가
-                    prompt_with_ids = f"""Available image IDs in this document: {available_ids_str}
-⚠️ CRITICAL: You can ONLY use the image IDs listed above. DO NOT create or imagine any other image IDs!
-
-{PROMPT_TUTORIAL.render(chunks=chunks_text)}"""
+                    # ✅ prompts.py의 Template 사용
+                    if section_image_ids:
+                        prompt = PROMPT_TUTORIAL_SECTION_WITH_IMAGES.render(
+                            available_image_ids=section_ids_str,
+                            image_count=len(section_image_ids),
+                            chunks=chunks_text
+                        )
+                    else:
+                        # 이미지가 없는 섹션
+                        prompt = PROMPT_TUTORIAL_SECTION_NO_IMAGES.render(
+                            chunks=chunks_text
+                        )
                     
-                    section = await self.llm.execute(prompt_with_ids)
+                    section = await self.llm.execute(prompt)
                     
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 그룹 {idx} 섹션 생성 완료", flush=True)
@@ -252,14 +276,6 @@ class GuideGraphBuilder:
             total_original_length = sum(len(s) for s in valid_sections)
             total_original_images = sum(s.count('[IMG_') for s in valid_sections)
             
-            # ✅ 실제로 존재하는 이미지 ID 목록 추출
-            available_image_ids = set()
-            for chunk in st.chunks:
-                for img_id, _ in chunk.figs:
-                    available_image_ids.add(img_id)
-            
-            available_ids_str = ", ".join(sorted(available_image_ids)) if available_image_ids else "NONE"
-            
             # 병렬 번역
             async def _translate_one_section(section, idx):
                 """단일 섹션을 번역한다."""
@@ -270,13 +286,26 @@ class GuideGraphBuilder:
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 섹션 {idx+1} 번역 중: {section_length}자, {section_images}개 이미지", flush=True)
                     
-                    # ✅ 프롬프트에 실제 이미지 ID 목록 추가
-                    section_prompt_with_ids = f"""Available image IDs in this document: {available_ids_str}
-⚠️ CRITICAL: When translating, preserve ONLY the image IDs listed above. DO NOT create or add any other image IDs!
-
-{PROMPT_TUTORIAL_TRANSLATE.render(lang=st.lang, text=section)}"""
+                    # ✅ 이 섹션에 실제로 존재하는 이미지 ID 추출
+                    import re
+                    section_img_ids = set(re.findall(r'IMG_\d+_\d+', section))
+                    section_ids_str = ", ".join(sorted(section_img_ids)) if section_img_ids else "NONE"
                     
-                    translated_section = await self.llm.execute(section_prompt_with_ids)
+                    # ✅ prompts.py의 Template 사용
+                    if section_img_ids:
+                        prompt = PROMPT_TUTORIAL_TRANSLATE_WITH_IMAGES.render(
+                            image_count=len(section_img_ids),
+                            available_image_ids=section_ids_str,
+                            lang=st.lang,
+                            text=section
+                        )
+                    else:
+                        prompt = PROMPT_TUTORIAL_TRANSLATE_NO_IMAGES.render(
+                            lang=st.lang,
+                            text=section
+                        )
+                    
+                    translated_section = await self.llm.execute(prompt)
                     
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 섹션 {idx+1} 번역 완료", flush=True)
@@ -384,7 +413,21 @@ class GuideGraphBuilder:
                     
                     # tutorial에서 이미지 ID 패턴 확인
                     img_patterns = re.findall(r'\[(IMG_\d+_\d+)(?::[^\]]+)?\]', st.tutorial)
-                    print(f"[GuideGraphBuilder] tutorial에서 찾은 이미지 ID 패턴: {img_patterns}", flush=True)
+                    unique_images = len(set(img_patterns))
+                    total_references = len(img_patterns)
+                    
+                    print(f"[GuideGraphBuilder] 📊 이미지 통계:", flush=True)
+                    print(f"[GuideGraphBuilder]   - 유니크 이미지: {unique_images}개", flush=True)
+                    print(f"[GuideGraphBuilder]   - 총 참조 횟수: {total_references}개", flush=True)
+                    
+                    # ✅ 중복 비율 확인 - 과도한 경우만 경고
+                    if total_references > unique_images * 2:
+                        print(f"[GuideGraphBuilder] ⚠️  이미지 과다 참조 감지! (평균 {total_references/unique_images:.1f}회/이미지)", flush=True)
+                        print(f"[GuideGraphBuilder] 🔧 자동 정리 수행 중...", flush=True)
+                        st.tutorial = self._remove_duplicate_images(st.tutorial)
+                        st.log.append(f"⚠️ 이미지 중복 제거: {total_references}개 → {unique_images}개")
+                    else:
+                        print(f"[GuideGraphBuilder] ✅ 이미지 참조 적절함 (평균 {total_references/unique_images:.1f}회/이미지)", flush=True)
                     
                     # 튜토리얼에서 이미지 ID를 URI로 교체
                     st.tutorial = self._replace_image_ids_with_uris(st.tutorial, all_image_mapping)
@@ -404,6 +447,48 @@ class GuideGraphBuilder:
         return g.compile()
 
     # ──────────────── Helper methods ────────────────
+    def _remove_duplicate_images(self, text: str) -> str:
+        """중복된 이미지 참조를 제거하여 각 이미지가 한 번만 나오도록 한다."""
+        import re
+        
+        # 모든 이미지 참조 찾기
+        img_pattern = re.compile(r'\[(IMG_\d+_\d+)(?::([^\]]+))?\]')
+        
+        seen_images = set()
+        result_parts = []
+        last_pos = 0
+        
+        for match in img_pattern.finditer(text):
+            img_id = match.group(1)
+            
+            # 이 이미지를 처음 보는 경우만 유지
+            if img_id not in seen_images:
+                # 매치 이전의 텍스트 추가
+                result_parts.append(text[last_pos:match.start()])
+                # 이미지 참조 추가
+                result_parts.append(match.group(0))
+                seen_images.add(img_id)
+                last_pos = match.end()
+            else:
+                # 중복 이미지는 제거하고 간단한 텍스트로 대체
+                result_parts.append(text[last_pos:match.start()])
+                result_parts.append("(as shown above)")  # 간단한 참조로 대체
+                last_pos = match.end()
+                print(f"[GuideGraphBuilder] 🔄 중복 이미지 제거: {img_id}", flush=True)
+        
+        # 나머지 텍스트 추가
+        result_parts.append(text[last_pos:])
+        
+        cleaned_text = "".join(result_parts)
+        
+        # 통계
+        original_count = len(img_pattern.findall(text))
+        final_count = len(seen_images)
+        if original_count > final_count:
+            print(f"[GuideGraphBuilder] 이미지 중복 제거: {original_count}개 → {final_count}개 (유니크)", flush=True)
+        
+        return cleaned_text
+    
     def _create_image_mapping(self, chunks: List[PageChunk]) -> dict:
         """청크에서 이미지 ID를 URI로 매핑하는 딕셔너리 생성."""
         image_mapping = {}
