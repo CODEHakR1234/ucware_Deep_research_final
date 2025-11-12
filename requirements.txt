@@ -42,7 +42,7 @@ Jinja2>=3.0
 docling>=0.6.0
 torch>=2.0.0
 torchvision>=0.15.0
-transformers>=4.30.0
+transformers>=4.53.1,<4.54.0  # ColPali 0.3.12 호환
 accelerate>=0.20.0  # GPU 가속용
 
 # ───────── Tavily Search API ─────────

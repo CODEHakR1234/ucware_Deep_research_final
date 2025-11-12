@@ -5,6 +5,8 @@
 """
 
 from __future__ import annotations
+import os
+import re
 import time
 import asyncio
 from functools import wraps
@@ -21,6 +23,9 @@ from app.domain.interfaces import (
     SemanticGrouperIF,
 )
 from app.prompts import PROMPT_TUTORIAL, PROMPT_TUTORIAL_TRANSLATE
+
+# ──────────────── 환경변수 설정 ────────────────
+DEBUG = os.getenv("DEBUG_TUTORIAL", "false").lower() == "true"
 
 # ──────────────── 상태 타입 ────────────────
 class GuideState(BaseModel):
@@ -92,6 +97,32 @@ class GuideGraphBuilder:
         self.grouper = grouper
         self.llm = llm
 
+    # ──────────────── Helper methods ────────────────
+    def _safe_truncate(self, text: str, max_len: int = 6000) -> str:
+        """이미지 참조 경계를 존중하는 안전한 텍스트 트러케이션.
+        
+        Args:
+            text: 트러케이션할 텍스트
+            max_len: 최대 길이
+            
+        Returns:
+            트러케이션된 텍스트 (이미지 참조가 잘리지 않음)
+        """
+        if len(text) <= max_len:
+            return text
+        
+        # max_len 근처에서 이미지 참조가 아닌 곳에서 자르기
+        truncated = text[:max_len]
+        
+        # 마지막 완전한 이미지 참조 찾기 ([IMG_X_Y:caption] 형태)
+        last_img_end = truncated.rfind(']')
+        if last_img_end != -1:
+            # 이미지 참조 경계에서 자르기
+            return truncated[:last_img_end + 1]
+        
+        # 이미지 참조가 없으면 그냥 자르기
+        return truncated
+
     def build(self) -> StateGraph:
         """튜토리얼 생성 그래프를 빌드한다."""
         g = StateGraph(GuideState)
@@ -117,7 +148,7 @@ class GuideGraphBuilder:
         # 2. Generate sections -------------------------------------------
         @safe_retry
         async def generate_sections(st: GuideState):
-            """자습서 섹션들을 생성한다.
+            """자습서 섹션들을 생성한다 (병렬 처리).
 
             Args:
                 st: 현재 요청 상태.
@@ -131,30 +162,50 @@ class GuideGraphBuilder:
             if not isinstance(st.chunks[0], PageChunk):
                 raise ValueError("잘못된 청크 형식입니다. PageChunk 객체가 필요합니다.")
             
-            sections = []
-            
             # SemanticGrouper를 사용한 청크 그룹화
             print(f"[GuideGraphBuilder] 청크 그룹화 시작: {len(st.chunks)}개 청크", flush=True)
             groups = self.grouper.group_chunks(st.chunks)
             st.log.append(f"청크 그룹화 완료: {len(groups)}개 그룹")
             print(f"[GuideGraphBuilder] 청크 그룹화 완료: {len(groups)}개 그룹", flush=True)
             
-            # 각 그룹별로 섹션 생성
-            for i, grp in enumerate(groups, 1):
-                st.log.append(f"그룹 {i} 처리 중: {len(grp)}개 청크")
-                print(f"[GuideGraphBuilder] 그룹 {i} 처리 중: {len(grp)}개 청크", flush=True)
-                
-                # 청크 텍스트를 그대로 LLM에 전달 ([IMG_id:caption] 형태)
-                chunks_text = "\n".join(c.text for c in grp)[:6_000]
-                prompt = PROMPT_TUTORIAL.render(chunks=chunks_text)
-                
-                section = await self.llm.execute(prompt)
-                
-                # 이미지 ID는 그대로 유지 (finish에서 처리)
-                sections.append(section)
-                
-                st.log.append(f"그룹 {i} 섹션 생성 완료")
-                print(f"[GuideGraphBuilder] 그룹 {i} 섹션 생성 완료", flush=True)
+            # 병렬 섹션 생성
+            async def _generate_one_section(grp, idx):
+                """단일 섹션을 생성한다."""
+                try:
+                    if DEBUG:
+                        print(f"[GuideGraphBuilder] 그룹 {idx} 처리 중: {len(grp)}개 청크", flush=True)
+                    
+                    # 안전한 트러케이션으로 이미지 참조 보존
+                    chunks_text = self._safe_truncate("\n".join(c.text for c in grp), 6_000)
+                    prompt = PROMPT_TUTORIAL.render(chunks=chunks_text)
+                    
+                    section = await self.llm.execute(prompt)
+                    
+                    if DEBUG:
+                        print(f"[GuideGraphBuilder] 그룹 {idx} 섹션 생성 완료", flush=True)
+                    
+                    return idx, section
+                except Exception as e:
+                    print(f"[GuideGraphBuilder] ⚠️ 그룹 {idx} 섹션 생성 실패: {e}", flush=True)
+                    st.log.append(f"섹션 {idx} 생성 실패")
+                    # 실패 시 기본 섹션 반환
+                    return idx, f"## 섹션 {idx}\n\n(생성 실패)"
+            
+            # 모든 그룹을 병렬로 처리
+            print(f"[GuideGraphBuilder] {len(groups)}개 섹션 병렬 생성 시작", flush=True)
+            tasks = [_generate_one_section(grp, i) for i, grp in enumerate(groups, 1)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 결과 정렬 및 수집
+            sections = []
+            for result in sorted(results, key=lambda x: x[0] if isinstance(x, tuple) else 999):
+                if isinstance(result, Exception):
+                    print(f"[GuideGraphBuilder] ⚠️ 섹션 생성 예외: {result}", flush=True)
+                    sections.append("## 섹션\n\n(생성 실패)")
+                elif isinstance(result, tuple):
+                    idx, section = result
+                    sections.append(section)
+                    st.log.append(f"그룹 {idx} 섹션 생성 완료")
 
             st.sections = sections
             print(f"[GuideGraphBuilder] 모든 섹션 생성 완료: {len(sections)}개", flush=True)
@@ -165,7 +216,7 @@ class GuideGraphBuilder:
         # 3. Combine sections --------------------------------------------
         @safe_retry
         async def combine_sections(st: GuideState):
-            """섹션들을 하나의 일관된 Markdown 문서로 통합하고 필요시 번역한다.
+            """섹션들을 하나의 일관된 Markdown 문서로 통합하고 필요시 번역한다 (병렬 처리).
 
             Args:
                 st: 현재 요청 상태.
@@ -176,38 +227,61 @@ class GuideGraphBuilder:
             if not st.sections:
                 raise ValueError("sections is empty — cannot combine")
             
-            print(f"[GuideGraphBuilder] 섹션별 번역 시작: {len(st.sections)}개 섹션", flush=True)
+            # 빈 섹션 필터링 (섹션 번호 정확성 보장)
+            valid_sections = [s for s in st.sections if s.strip()]
+            if not valid_sections:
+                raise ValueError("모든 섹션이 비어있습니다")
             
-            # 각 섹션을 개별적으로 번역
+            print(f"[GuideGraphBuilder] 섹션별 번역 시작: {len(valid_sections)}개 유효 섹션", flush=True)
+            
+            # 통계 수집
+            total_original_length = sum(len(s) for s in valid_sections)
+            total_original_images = sum(s.count('[IMG_') for s in valid_sections)
+            
+            # 병렬 번역
+            async def _translate_one_section(section, idx):
+                """단일 섹션을 번역한다."""
+                try:
+                    section_length = len(section)
+                    section_images = section.count('[IMG_')
+                    
+                    if DEBUG:
+                        print(f"[GuideGraphBuilder] 섹션 {idx+1} 번역 중: {section_length}자, {section_images}개 이미지", flush=True)
+                    
+                    section_prompt = PROMPT_TUTORIAL_TRANSLATE.render(lang=st.lang, text=section)
+                    translated_section = await self.llm.execute(section_prompt)
+                    
+                    if DEBUG:
+                        print(f"[GuideGraphBuilder] 섹션 {idx+1} 번역 완료", flush=True)
+                    
+                    return idx, translated_section
+                except Exception as e:
+                    # 번역 실패 시 원본 섹션 사용
+                    print(f"[GuideGraphBuilder] ⚠️ 섹션 {idx+1} 번역 실패, 원본 사용: {e}", flush=True)
+                    st.log.append(f"섹션 {idx+1} 번역 실패 (원본 사용)")
+                    return idx, section  # 원본 그대로
+            
+            # 모든 섹션을 병렬로 번역
+            print(f"[GuideGraphBuilder] {len(valid_sections)}개 섹션 병렬 번역 시작", flush=True)
+            tasks = [_translate_one_section(s, i) for i, s in enumerate(valid_sections)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 결과 정렬 및 수집
             translated_sections = []
-            total_original_length = 0
-            total_original_images = 0
-            
-            for i, section in enumerate(st.sections):
-                if not section.strip():
-                    continue
-                
-                # 번역 전 섹션 정보
-                section_length = len(section)
-                section_images = section.count('[IMG_')
-                total_original_length += section_length
-                total_original_images += section_images
-                
-                print(f"[GuideGraphBuilder] 섹션 {i+1} 번역 중: {section_length}자, {section_images}개 이미지", flush=True)
-                
-                # 각 섹션별로 번역
-                section_prompt = PROMPT_TUTORIAL_TRANSLATE.render(lang=st.lang, text=section)
-                translated_section = await self.llm.execute(section_prompt)
-                translated_sections.append(translated_section)
-                
-                print(f"[GuideGraphBuilder] 섹션 {i+1} 번역 완료", flush=True)
+            for result in sorted(results, key=lambda x: x[0] if isinstance(x, tuple) else 999):
+                if isinstance(result, Exception):
+                    print(f"[GuideGraphBuilder] ⚠️ 번역 예외: {result}", flush=True)
+                    # 예외 발생 시 기본 텍스트
+                    translated_sections.append("## 섹션\n\n(번역 실패)")
+                elif isinstance(result, tuple):
+                    idx, section = result
+                    translated_sections.append(section)
             
             # 번역된 섹션들을 문서 구조로 결합
             translated_doc = self._create_document_structure(translated_sections)
             
             # 번역 후 내용 길이 및 구조 확인
             translated_length = len(translated_doc)
-            translated_sections_count = translated_doc.count('#')
             translated_images = translated_doc.count('[IMG_')
             print(f"[GuideGraphBuilder] 번역 후: {translated_length}자, {len(translated_sections)}개 섹션, {translated_images}개 이미지", flush=True)
             
@@ -216,9 +290,9 @@ class GuideGraphBuilder:
                 print(f"[GuideGraphBuilder] ⚠️  경고: 번역 후 내용이 {total_original_length}자에서 {translated_length}자로 줄어듦", flush=True)
                 st.log.append(f"번역 경고: 내용 길이 감소 ({total_original_length}→{translated_length}자)")
             
-            if len(translated_sections) < len(st.sections):
-                print(f"[GuideGraphBuilder] ⚠️  경고: 섹션 수 감소 ({len(st.sections)}→{len(translated_sections)})", flush=True)
-                st.log.append(f"번역 경고: 섹션 수 감소 ({len(st.sections)}→{len(translated_sections)})")
+            if len(translated_sections) < len(valid_sections):
+                print(f"[GuideGraphBuilder] ⚠️  경고: 섹션 수 감소 ({len(valid_sections)}→{len(translated_sections)})", flush=True)
+                st.log.append(f"번역 경고: 섹션 수 감소 ({len(valid_sections)}→{len(translated_sections)})")
             
             if translated_images < total_original_images:
                 print(f"[GuideGraphBuilder] ⚠️  경고: 이미지 참조 감소 ({total_original_images}→{translated_images})", flush=True)
@@ -253,12 +327,8 @@ class GuideGraphBuilder:
             "finish": "finish",
         })
 
-        def post_combine(st: GuideState) -> str:
-            return "finish" if st.error else "finish"
-
-        g.add_conditional_edges("combine", post_combine, {
-            "finish": "finish",
-        })
+        # combine → finish 직접 연결 (조건 불필요)
+        g.add_edge("combine", "finish")
 
         # Finish node 추가
         async def finish_node(st: GuideState):
@@ -271,23 +341,24 @@ class GuideGraphBuilder:
                 if st.tutorial and st.chunks:
                     print(f"[GuideGraphBuilder] 이미지 ID를 URI로 교체 시작", flush=True)
                     
-                    # 디버깅: chunks 정보 출력
-                    print(f"[GuideGraphBuilder] chunks 개수: {len(st.chunks)}", flush=True)
-                    for i, chunk in enumerate(st.chunks):
-                        print(f"[GuideGraphBuilder] chunk {i}: figs 개수 = {len(chunk.figs)}", flush=True)
-                        for img_id, uri in chunk.figs:
-                            print(f"[GuideGraphBuilder]   - {img_id} -> {uri[:50]}...", flush=True)
-                    
-                    # _create_image_mapping 메서드를 사용하여 이미지 매핑 생성
+                    # 이미지 매핑 생성
                     all_image_mapping = self._create_image_mapping(st.chunks)
-                    print(f"[GuideGraphBuilder] 생성된 이미지 매핑: {len(all_image_mapping)}개", flush=True)
-                    for img_id, uri in all_image_mapping.items():
-                        print(f"[GuideGraphBuilder]   매핑: {img_id} -> {uri[:50]}...", flush=True)
                     
-                    # 디버깅: tutorial에서 이미지 ID 패턴 확인
-                    import re
-                    img_patterns = re.findall(r'\[(IMG_\d+_\d+)\]', st.tutorial)
-                    print(f"[GuideGraphBuilder] tutorial에서 찾은 이미지 ID 패턴: {img_patterns}", flush=True)
+                    if DEBUG:
+                        # 디버깅: chunks 정보 출력
+                        print(f"[GuideGraphBuilder] chunks 개수: {len(st.chunks)}", flush=True)
+                        for i, chunk in enumerate(st.chunks):
+                            print(f"[GuideGraphBuilder] chunk {i}: figs 개수 = {len(chunk.figs)}", flush=True)
+                            for img_id, uri in chunk.figs:
+                                print(f"[GuideGraphBuilder]   - {img_id} -> {uri[:50]}...", flush=True)
+                        
+                        print(f"[GuideGraphBuilder] 생성된 이미지 매핑: {len(all_image_mapping)}개", flush=True)
+                        for img_id, uri in all_image_mapping.items():
+                            print(f"[GuideGraphBuilder]   매핑: {img_id} -> {uri[:50]}...", flush=True)
+                        
+                        # tutorial에서 이미지 ID 패턴 확인
+                        img_patterns = re.findall(r'\[(IMG_\d+_\d+)\]', st.tutorial)
+                        print(f"[GuideGraphBuilder] tutorial에서 찾은 이미지 ID 패턴: {img_patterns}", flush=True)
                     
                     # 튜토리얼에서 이미지 ID를 URI로 교체
                     st.tutorial = self._replace_image_ids_with_uris(st.tutorial, all_image_mapping)
@@ -319,26 +390,31 @@ class GuideGraphBuilder:
 
     def _replace_image_ids_with_uris(self, section: str, image_mapping: dict) -> str:
         """섹션에서 이미지 ID [IMG_X]를 실제 URI로 교체."""
-        import re
-        
-        print(f"[GuideGraphBuilder] _replace_image_ids_with_uris 시작: 매핑 {len(image_mapping)}개", flush=True)
+        if DEBUG:
+            print(f"[GuideGraphBuilder] _replace_image_ids_with_uris 시작: 매핑 {len(image_mapping)}개", flush=True)
         
         # [IMG_X] 패턴을 찾아서 실제 이미지 태그로 교체
         def replace_image_id(match):
             img_id = match.group(1)
-            print(f"[GuideGraphBuilder] 매칭된 이미지 ID: {img_id}", flush=True)
+            if DEBUG:
+                print(f"[GuideGraphBuilder] 매칭된 이미지 ID: {img_id}", flush=True)
+            
             if img_id in image_mapping:
                 uri = image_mapping[img_id]
-                print(f"[GuideGraphBuilder] 매핑 성공: {img_id} -> {uri[:50]}...", flush=True)
+                if DEBUG:
+                    print(f"[GuideGraphBuilder] 매핑 성공: {img_id} -> {uri[:50]}...", flush=True)
                 return f"![figure]({uri})"
             else:
-                print(f"[GuideGraphBuilder] 매핑 실패: {img_id} (매핑에 없음)", flush=True)
-                return match.group(0)  # 매핑이 없으면 원본 유지
+                # 매핑 실패 시 경고
+                print(f"[GuideGraphBuilder] ⚠️ 매핑 실패: {img_id} (매핑에 없음)", flush=True)
+                return f"![이미지 로드 실패]() <!-- {img_id} 매핑 없음 -->"
         
         # [IMG_X_Y] 패턴을 찾아서 교체 (페이지_번호 형식)
         section_with_images = re.sub(r'\[(IMG_\d+_\d+)\]', replace_image_id, section)
         
-        print(f"[GuideGraphBuilder] _replace_image_ids_with_uris 완료", flush=True)
+        if DEBUG:
+            print(f"[GuideGraphBuilder] _replace_image_ids_with_uris 완료", flush=True)
+        
         return section_with_images
 
     def _create_document_structure(self, sections: List[str]) -> str:
@@ -413,7 +489,6 @@ class GuideGraphBuilder:
 
     def _create_anchor(self, title: str) -> str:
         """제목에서 URL 친화적인 앵커를 생성한다."""
-        import re
         # 소문자로 변환하고 특수문자 제거
         anchor = re.sub(r'[^\w\s-]', '', title.lower())
         # 공백을 하이픈으로 변환
