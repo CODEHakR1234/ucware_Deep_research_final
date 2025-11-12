@@ -120,4 +120,13 @@ class LlmEngine(LlmChainIF):
         # ``return_intermediate_steps=False``.
         result = await self._summ_chain.ainvoke({"input_documents": lc_docs})
 
-        return str(result["output_text"]).strip()
+        # LangChain 버전에 따라 반환 타입이 다를 수 있음
+        if isinstance(result, dict):
+            # dict 형태: {"output_text": "..."}
+            return str(result.get("output_text", "")).strip()
+        elif isinstance(result, str):
+            # 직접 문자열 반환
+            return result.strip()
+        else:
+            # 알 수 없는 타입: 문자열 변환 시도
+            return str(result).strip()
