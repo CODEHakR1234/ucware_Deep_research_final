@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+env/
+.DS_Store
+.vscode/
+.idea/
+.env
+chroma_db/
+summary_cache.db
+dump.rdb
+nohup.out
+
+!summary_api_full_guide.md
+!summary_api_full_guide.pdf

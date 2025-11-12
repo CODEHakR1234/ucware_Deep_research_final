@@ -1,0 +1,47 @@
+# ───────── FastAPI 기본 서버 ─────────
+fastapi
+uvicorn
+requests
+python-dotenv
+
+# ───────── PDF 및 문서 처리 ─────────
+# (PyMuPDF, Pillow, OCR 계열 의존 제거)  
+
+# ───────── LangChain 최신 구조 (0.2+) ─────────
+langchain==0.2.16
+langchain-openai==0.1.21
+langchain-chroma==0.1.2
+langchain-community==0.2.16
+
+# ───────── LangGraph 요약 에이전트 구성 ─────────
+langgraph==0.2.3
+# (주의) langchain-core는 적지 마세요
+
+# LangChain experimental splitter
+langchain-experimental>=0.0.15
+
+# ───────── 벡터 임베딩 및 벡터 DB ─────────
+sentence-transformers
+chromadb==0.5.4
+
+# ───────── 머신러닝 및 유사도 계산 ─────────
+scipy>=1.11
+numpy>=1.24.0
+
+# ───────── 기타 ─────────
+pydantic
+tqdm
+openai
+redis>=5.0.0
+httpx[http2]  # httpx 비동기 클라이언트
+Jinja2>=3.0
+
+# ───────── SmolDocling & Docling ─────────
+docling>=0.6.0
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+accelerate>=0.20.0  # GPU 가속용
+
+# ───────── Tavily Search API ─────────
+tavily-python
