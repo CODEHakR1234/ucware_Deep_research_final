@@ -344,21 +344,20 @@ class GuideGraphBuilder:
                     # 이미지 매핑 생성
                     all_image_mapping = self._create_image_mapping(st.chunks)
                     
-                    if DEBUG:
-                        # 디버깅: chunks 정보 출력
-                        print(f"[GuideGraphBuilder] chunks 개수: {len(st.chunks)}", flush=True)
-                        for i, chunk in enumerate(st.chunks):
-                            print(f"[GuideGraphBuilder] chunk {i}: figs 개수 = {len(chunk.figs)}", flush=True)
-                            for img_id, uri in chunk.figs:
-                                print(f"[GuideGraphBuilder]   - {img_id} -> {uri[:50]}...", flush=True)
-                        
-                        print(f"[GuideGraphBuilder] 생성된 이미지 매핑: {len(all_image_mapping)}개", flush=True)
-                        for img_id, uri in all_image_mapping.items():
-                            print(f"[GuideGraphBuilder]   매핑: {img_id} -> {uri[:50]}...", flush=True)
-                        
-                        # tutorial에서 이미지 ID 패턴 확인
-                        img_patterns = re.findall(r'\[(IMG_\d+_\d+)\]', st.tutorial)
-                        print(f"[GuideGraphBuilder] tutorial에서 찾은 이미지 ID 패턴: {img_patterns}", flush=True)
+                    # ✅ 디버깅: chunks 정보 출력 (항상 표시)
+                    print(f"[GuideGraphBuilder] chunks 개수: {len(st.chunks)}", flush=True)
+                    for i, chunk in enumerate(st.chunks[:3]):  # 처음 3개만
+                        print(f"[GuideGraphBuilder] chunk {i}: figs 개수 = {len(chunk.figs)}", flush=True)
+                        for img_id, uri in chunk.figs:
+                            print(f"[GuideGraphBuilder]   - {img_id} -> {uri[:50]}...", flush=True)
+                    
+                    print(f"[GuideGraphBuilder] 생성된 이미지 매핑: {len(all_image_mapping)}개", flush=True)
+                    for img_id, uri in all_image_mapping.items():
+                        print(f"[GuideGraphBuilder]   매핑: {img_id} -> {uri[:50]}...", flush=True)
+                    
+                    # tutorial에서 이미지 ID 패턴 확인
+                    img_patterns = re.findall(r'\[(IMG_\d+_\d+)(?::[^\]]+)?\]', st.tutorial)
+                    print(f"[GuideGraphBuilder] tutorial에서 찾은 이미지 ID 패턴: {img_patterns}", flush=True)
                     
                     # 튜토리얼에서 이미지 ID를 URI로 교체
                     st.tutorial = self._replace_image_ids_with_uris(st.tutorial, all_image_mapping)
