@@ -22,7 +22,7 @@ langchain-experimental>=0.0.15
 
 # ───────── 벡터 임베딩 및 벡터 DB ─────────
 sentence-transformers
-chromadb==0.5.4
+chromadb[server]==0.5.4
 
 # ───────── 머신러닝 및 유사도 계산 ─────────
 scipy>=1.11
