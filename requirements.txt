@@ -5,12 +5,13 @@ requests
 python-dotenv
 
 # ───────── PDF 및 문서 처리 ─────────
-# (PyMuPDF, Pillow, OCR 계열 의존 제거)  
+PyMuPDF>=1.23.0  # ColPali용 PDF → 이미지 변환
+Pillow>=10.0.0   # ColPali용 이미지 처리  
 
 # ───────── LangChain 최신 구조 (0.2+) ─────────
 langchain==0.2.16
 langchain-openai==0.1.21
-langchain-chroma==0.1.2
+langchain-chroma>=0.1.4  # ChromaDB 최신 버전 호환성
 langchain-community==0.2.16
 
 # ───────── LangGraph 요약 에이전트 구성 ─────────
@@ -22,7 +23,7 @@ langchain-experimental>=0.0.15
 
 # ───────── 벡터 임베딩 및 벡터 DB ─────────
 sentence-transformers
-chromadb[server]==0.5.4
+chromadb[server]>=0.5.20  # 최신 안정 버전 (0.5.x 계열)
 
 # ───────── 머신러닝 및 유사도 계산 ─────────
 scipy>=1.11

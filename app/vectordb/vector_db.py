@@ -120,7 +120,6 @@ class VectorDB:
                         "file_id": file_id,
                         "chunk_index": idx,
                         "date": today,
-                        "_type": "Document",  # ChromaDB 호환성을 위한 타입 정보
                     },
                 )
                 for idx, ck in enumerate(chunks)
