@@ -142,14 +142,14 @@ class PDFReceiver:
         except Exception as e:
             raise ValueError(f"Docling PDF 변환 실패: {e}")
 
-        # ✅ 새로운 방식: doc 객체에서 직접 요소 추출
+        # ✅ 새로운 방식: doc 객체에서 직접 요소 추출 (bbox 기반 정렬)
         elements: List[PageElement] = []
         
-        # 페이지별로 요소를 그룹화
+        # 페이지별로 요소를 그룹화 (bbox 포함)
         from collections import defaultdict
-        page_items = defaultdict(lambda: {"texts": [], "images": []})
+        page_items = defaultdict(lambda: {"items": []})  # items: [(y_position, type, data), ...]
         
-        # 1. 텍스트 추출
+        # 1. 텍스트 추출 (bbox 정보 포함)
         if hasattr(doc, 'texts'):
             print(f"[PDFReceiver] 텍스트 요소 추출 중: {len(doc.texts)}개", flush=True)
             for text_item in doc.texts:
@@ -157,9 +157,11 @@ class PDFReceiver:
                     page_no = text_item.prov[0].page_no
                     # 텍스트가 있는 경우만 추가
                     if hasattr(text_item, 'text') and text_item.text.strip():
-                        page_items[page_no]["texts"].append(text_item.text.strip())
+                        # bbox가 있으면 y좌표 추출, 없으면 큰 값(끝으로 배치)
+                        y_pos = text_item.prov[0].bbox.t if hasattr(text_item.prov[0], 'bbox') and text_item.prov[0].bbox else 999999
+                        page_items[page_no]["items"].append((y_pos, "text", text_item.text.strip()))
         
-        # 2. 이미지 추출
+        # 2. 이미지 추출 (bbox 정보 포함)
         if hasattr(doc, 'pictures'):
             print(f"[PDFReceiver] 이미지 요소 추출 중: {len(doc.pictures)}개", flush=True)
             for pic_item in doc.pictures:
@@ -183,41 +185,64 @@ class PDFReceiver:
                         if hasattr(pic_item, 'captions') and pic_item.captions:
                             caption = pic_item.captions[0].text if hasattr(pic_item.captions[0], 'text') else ""
                         
-                        page_items[page_no]["images"].append((img_bytes, caption))
+                        # bbox가 있으면 y좌표 추출, 없으면 큰 값(끝으로 배치)
+                        y_pos = pic_item.prov[0].bbox.t if hasattr(pic_item.prov[0], 'bbox') and pic_item.prov[0].bbox else 999999
+                        page_items[page_no]["items"].append((y_pos, "image", (img_bytes, caption)))
         
-        # 3. 페이지별로 PageElement 생성
+        # 3. 페이지별로 PageElement 생성 (bbox 순서대로)
         print(f"[PDFReceiver] 페이지별 요소 생성 시작: {len(page_items)}개 페이지", flush=True)
         
         for page_no in sorted(page_items.keys()):
-            items = page_items[page_no]
-            image_counter = 1  # 페이지별로 이미지 ID 카운터 초기화
+            items = page_items[page_no]["items"]
             
-            print(f"[PDFReceiver] 페이지 {page_no} 처리: 텍스트 {len(items['texts'])}개, 이미지 {len(items['images'])}개", flush=True)
+            # ✅ bbox의 y좌표(top) 기준으로 정렬 - 원본 PDF의 배치 유지
+            sorted_items = sorted(items, key=lambda x: x[0])
             
-            # (1) 텍스트를 이미지 플레이스홀더와 함께 처리
-            # 이미지 참조를 텍스트에 삽입하기 위해 간단한 전략 사용
-            # 각 페이지의 텍스트 끝에 이미지 플레이스홀더 추가
-            text_content = "\n\n".join(items["texts"])
+            # 이미지 카운터 초기화
+            image_counter = 1
             
-            # 이미지 플레이스홀더 추가
-            for img_idx, (img_bytes, caption) in enumerate(items["images"], 1):
-                img_id = f"IMG_{page_no}_{img_idx}"
-                text_content += f"\n\n[{img_id}]"
-                print(f"[PDFReceiver] 이미지 플레이스홀더 생성: {img_id}", flush=True)
+            # 통계
+            num_texts = sum(1 for _, item_type, _ in sorted_items if item_type == "text")
+            num_images = sum(1 for _, item_type, _ in sorted_items if item_type == "image")
+            print(f"[PDFReceiver] 페이지 {page_no} 처리: 텍스트 {num_texts}개, 이미지 {num_images}개 (bbox 정렬됨)", flush=True)
             
-            # 텍스트를 단락으로 분할하여 PageElement 생성
-            for para in re.split(r"\n{2,}", text_content):
-                if para.strip():
-                    elements.append(PageElement("text", page_no, para.strip()))
+            # bbox 순서대로 텍스트와 이미지를 처리
+            text_buffer = []
             
-            # (2) 이미지 처리 - 이미 추출된 이미지 bytes를 PageElement로 추가
-            for img_idx, (img_bytes, caption) in enumerate(items["images"], 1):
-                img_id = f"IMG_{page_no}_{img_idx}"
-                
-                print(f"[PDFReceiver] 이미지 추가: {img_id} ({len(img_bytes)} bytes)", flush=True)
-                
-                # PageElement로 추가 (이미 bytes 형태)
-                elements.append(PageElement("figure", page_no, img_bytes, caption=caption or "Figure", id=img_id))
+            for y_pos, item_type, data in sorted_items:
+                if item_type == "text":
+                    # 텍스트 추가
+                    text_buffer.append(data)
+                    
+                elif item_type == "image":
+                    # 이미지를 만나면 텍스트 버퍼를 먼저 flush
+                    if text_buffer:
+                        text_content = "\n\n".join(text_buffer)
+                        for para in re.split(r"\n{2,}", text_content):
+                            if para.strip():
+                                elements.append(PageElement("text", page_no, para.strip()))
+                        text_buffer.clear()
+                    
+                    # 이미지 플레이스홀더 추가
+                    img_bytes, caption = data
+                    img_id = f"IMG_{page_no}_{image_counter}"
+                    
+                    print(f"[PDFReceiver] 이미지 플레이스홀더 생성: {img_id} (y={y_pos:.1f})", flush=True)
+                    
+                    # 플레이스홀더를 텍스트로 추가
+                    elements.append(PageElement("text", page_no, f"[{img_id}]"))
+                    
+                    # 이미지 데이터 추가
+                    elements.append(PageElement("figure", page_no, img_bytes, caption=caption or "Figure", id=img_id))
+                    
+                    image_counter += 1
+            
+            # 마지막 남은 텍스트 처리
+            if text_buffer:
+                text_content = "\n\n".join(text_buffer)
+                for para in re.split(r"\n{2,}", text_content):
+                    if para.strip():
+                        elements.append(PageElement("text", page_no, para.strip()))
 
         if not elements:
             raise ValueError("Docling PDF 파싱 결과가 없습니다")

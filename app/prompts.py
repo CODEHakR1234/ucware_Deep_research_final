@@ -138,9 +138,9 @@ CRITICAL REQUIREMENTS:
 4. **STRICT IMAGE REFERENCE RULE**: 
    - ONLY keep image references that EXACTLY match the original text
    - DO NOT create, add, or modify any image references
-   - If you see [IMG_0_1] in original, keep [IMG_0_1] in translation
-   - If you see [IMG_1_2] in original, keep [IMG_1_2] in translation
-   - DO NOT create [IMG_2_3], [IMG_3_4], or any other image references
+   - Copy EXACT image IDs from original (e.g., [IMG_3_1], [IMG_4_1], [IMG_13_1])
+   - DO NOT change image IDs (e.g., don't change [IMG_3_1] to [IMG_1_1])
+   - DO NOT create new image references that don't exist in original
    - If original has no images, output should have no images
 5. **Preserve ALL links**: Keep all URLs and references unchanged
 6. **Maintain educational tone**: Keep the tutor's notes and explanations intact
@@ -178,22 +178,22 @@ Rules
 -----
 • Output in Markdown (H1~H3 headings).
 • **STRICT IMAGE REFERENCE RULE**: 
-  - ONLY use image IDs that EXACTLY exist in the provided chunks
-  - If chunks contain [IMG_0_1], you can use [IMG_0_1]
-  - If chunks contain [IMG_1_2], you can use [IMG_1_2]
-  - DO NOT create new image IDs like [IMG_2_3], [IMG_3_4], etc.
-  - If no images exist in chunks, do not mention any images
+  - The chunks below contain image placeholders like [IMG_3_1], [IMG_4_1], [IMG_13_1], etc.
+  - ONLY use image IDs that EXACTLY appear in the chunks below
+  - Copy the EXACT image ID from chunks when referencing images
+  - DO NOT create or imagine new image IDs
+  - If no [IMG_X_Y] pattern exists in chunks, do not add any images
 • Use the same image ID reference for the same image throughout your explanation.
 • After every Figure/Table image reference, add "**Tutor's note:** …" line explaining the image.
 • Keep each section ≤ 200 words if possible.
 • End with "Key takeaways" bulleted list.
-• Make sure to reference relevant images naturally within your explanations based on the image information provided.
+• Place image references naturally within your explanations where they are most relevant.
 
 ABSOLUTE FORBIDDEN ACTIONS:
-- ❌ DO NOT create new image references like [IMG_X_Y]
+- ❌ DO NOT create new image IDs that don't exist in chunks
+- ❌ DO NOT modify existing image IDs (e.g., changing [IMG_3_1] to [IMG_1_1])
 - ❌ DO NOT add image references where none existed in chunks
-- ❌ DO NOT change existing image IDs from chunks
-- ❌ DO NOT mention images that don't exist in the provided chunks
+- ❌ DO NOT mention images without using their exact [IMG_X_Y] format from chunks
 
 Chunks:
 {{ chunks }}

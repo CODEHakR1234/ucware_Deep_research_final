@@ -168,6 +168,15 @@ class GuideGraphBuilder:
             st.log.append(f"청크 그룹화 완료: {len(groups)}개 그룹")
             print(f"[GuideGraphBuilder] 청크 그룹화 완료: {len(groups)}개 그룹", flush=True)
             
+            # ✅ 실제로 존재하는 이미지 ID 목록 추출
+            available_image_ids = set()
+            for chunk in st.chunks:
+                for img_id, _ in chunk.figs:
+                    available_image_ids.add(img_id)
+            
+            available_ids_str = ", ".join(sorted(available_image_ids)) if available_image_ids else "NONE"
+            print(f"[GuideGraphBuilder] 사용 가능한 이미지 ID: {available_ids_str}", flush=True)
+            
             # 병렬 섹션 생성
             async def _generate_one_section(grp, idx):
                 """단일 섹션을 생성한다."""
@@ -177,9 +186,14 @@ class GuideGraphBuilder:
                     
                     # 안전한 트러케이션으로 이미지 참조 보존
                     chunks_text = self._safe_truncate("\n".join(c.text for c in grp), 6_000)
-                    prompt = PROMPT_TUTORIAL.render(chunks=chunks_text)
                     
-                    section = await self.llm.execute(prompt)
+                    # ✅ 프롬프트에 실제 이미지 ID 목록 추가
+                    prompt_with_ids = f"""Available image IDs in this document: {available_ids_str}
+⚠️ CRITICAL: You can ONLY use the image IDs listed above. DO NOT create or imagine any other image IDs!
+
+{PROMPT_TUTORIAL.render(chunks=chunks_text)}"""
+                    
+                    section = await self.llm.execute(prompt_with_ids)
                     
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 그룹 {idx} 섹션 생성 완료", flush=True)
@@ -238,6 +252,14 @@ class GuideGraphBuilder:
             total_original_length = sum(len(s) for s in valid_sections)
             total_original_images = sum(s.count('[IMG_') for s in valid_sections)
             
+            # ✅ 실제로 존재하는 이미지 ID 목록 추출
+            available_image_ids = set()
+            for chunk in st.chunks:
+                for img_id, _ in chunk.figs:
+                    available_image_ids.add(img_id)
+            
+            available_ids_str = ", ".join(sorted(available_image_ids)) if available_image_ids else "NONE"
+            
             # 병렬 번역
             async def _translate_one_section(section, idx):
                 """단일 섹션을 번역한다."""
@@ -248,8 +270,13 @@ class GuideGraphBuilder:
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 섹션 {idx+1} 번역 중: {section_length}자, {section_images}개 이미지", flush=True)
                     
-                    section_prompt = PROMPT_TUTORIAL_TRANSLATE.render(lang=st.lang, text=section)
-                    translated_section = await self.llm.execute(section_prompt)
+                    # ✅ 프롬프트에 실제 이미지 ID 목록 추가
+                    section_prompt_with_ids = f"""Available image IDs in this document: {available_ids_str}
+⚠️ CRITICAL: When translating, preserve ONLY the image IDs listed above. DO NOT create or add any other image IDs!
+
+{PROMPT_TUTORIAL_TRANSLATE.render(lang=st.lang, text=section)}"""
+                    
+                    translated_section = await self.llm.execute(section_prompt_with_ids)
                     
                     if DEBUG:
                         print(f"[GuideGraphBuilder] 섹션 {idx+1} 번역 완료", flush=True)

@@ -89,7 +89,10 @@ class SemanticChunker:
                     else:
                         buf.append(p)
             else:  # figure / table / graph
-                # 이미지 정보만 수집 (플레이스홀더 교체는 하지 않음)
+                # ✅ 이미지 플레이스홀더를 텍스트 버퍼에 추가
+                buf.append(f"[{el.id}]")
+                
+                # 이미지 정보도 figs에 수집
                 # content가 bytes인 경우 처리
                 content = el.content if isinstance(el.content, str) else "image_data"
                 figs.append((el.id, content))
