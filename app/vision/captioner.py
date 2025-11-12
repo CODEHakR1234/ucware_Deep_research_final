@@ -65,10 +65,17 @@ class Captioner:
 
         # 테스트용 캡셔닝 비활성화
         if self.disabled:
-            print(f"[Captioner] 캡셔닝 비활성화됨 (DISABLE_CAPTIONING=true), 기본 캡션 사용: {len(images)}개 이미지", flush=True)
+            print(f"[Captioner] ⚠️  캡셔닝 비활성화됨 (DISABLE_CAPTIONING=true)", flush=True)
+            print(f"[Captioner]    기본 캡션 사용: {len(images)}개 이미지", flush=True)
             return ["이미지" for _ in images]
 
         # 캡셔닝 시도 (OpenAI Chat Completions 포맷)
+        print(f"[Captioner] 🔄 VLM 호출 시작:", flush=True)
+        print(f"[Captioner]    Backend: {self.backend}", flush=True)
+        print(f"[Captioner]    Model: {self.model}", flush=True)
+        print(f"[Captioner]    Endpoint: {self.endpoint}/chat/completions", flush=True)
+        print(f"[Captioner]    이미지 개수: {len(images)}개", flush=True)
+        
         try:
             prompt = prompt or "Describe this image in 1-2 sentences."
 
@@ -125,9 +132,26 @@ class Captioner:
                     )
 
             # 여러 장 이미지를 비동기 병렬 처리
-            return await asyncio.gather(*(_gen_one(b) for b in images))
+            results = await asyncio.gather(*(_gen_one(b) for b in images))
+            
+            print(f"[Captioner] ✅ VLM 호출 성공!", flush=True)
+            print(f"[Captioner]    생성된 캡션 {len(results)}개", flush=True)
+            
+            # 샘플 캡션 출력 (처음 2개)
+            for i, caption in enumerate(results[:2], 1):
+                print(f"[Captioner]    샘플 {i}: \"{caption[:60]}...\"" if len(caption) > 60 else f"[Captioner]    샘플 {i}: \"{caption}\"", flush=True)
+            
+            return results
+            
         except Exception as e:
-            print(f"[Captioner] 캡션 생성 실패, 기본 캡션 사용: {e}", flush=True)
+            print(f"[Captioner] ❌ 캡션 생성 실패!", flush=True)
+            print(f"[Captioner]    에러: {e}", flush=True)
+            print(f"[Captioner]    기본 캡션 사용: {len(images)}개", flush=True)
+            
+            # VLM 서버 상태 힌트
+            if "Connection" in str(e) or "refused" in str(e).lower():
+                print(f"[Captioner]    💡 VLM 서버가 실행 중인지 확인하세요: {self.endpoint}", flush=True)
+            
             # 기본 캡션 반환
             return ["이미지" for _ in images]
 

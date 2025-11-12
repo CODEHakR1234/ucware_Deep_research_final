@@ -58,18 +58,32 @@ class PdfLoader(PdfLoaderIF):
             # 이미지 요소들만 캡션 생성
             vis_elements = [e for e in elements if e.kind in ("figure", "table", "graph")]
             if vis_elements:
+                print(f"[PdfLoader] 🎨 Captioning 시작: {len(vis_elements)}개 이미지", flush=True)
+                
                 # bytes → 캡션 생성
                 captions = await _captioner.caption([e.content for e in vis_elements])
                 
+                print(f"[PdfLoader] ✅ Captioning 완료", flush=True)
+                
                 # 캡션 적용 + bytes → data-URI 변환
-                for element, caption in zip(vis_elements, captions):
+                for i, (element, caption) in enumerate(zip(vis_elements, captions), 1):
                     element.caption = caption or "No caption."
+                    
+                    # 첫 3개 캡션 상세 로그 출력
+                    if i <= 3:
+                        print(f"[PdfLoader]   📝 이미지 {i} ({element.id}):", flush=True)
+                        print(f"[PdfLoader]      캡션: \"{caption}\"", flush=True)
+                    
                     # bytes → base64 data-URI
                     if isinstance(element.content, (bytes, bytearray)):
                         mime = self._detect_image_mime(element.content)
                         b64 = base64.b64encode(element.content).decode() # 수정
                         data_uri = f"data:{mime};base64,{b64}"
                         element.content = data_uri
+                
+                # 요약 로그
+                if len(vis_elements) > 3:
+                    print(f"[PdfLoader]   ... 나머지 {len(vis_elements) - 3}개 이미지도 처리 완료", flush=True)
 
         # (3) 청크 분할
         chunks = _chunker.group(elements, return_pagechunk=with_figures)
