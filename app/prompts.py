@@ -172,59 +172,78 @@ IMPORTANT:
 PROMPT_TUTORIAL_TRANSLATE_WITH_IMAGES = Template("""
 📋 This section contains {{ image_count }} image reference(s): {{ available_image_ids }}
 
-🚨 STRICT TRANSLATION RULE:
-- Preserve EXACTLY {{ image_count }} image reference(s) - no more, no less
-- Each [IMG_X_Y] must appear the SAME number of times as in the original
-- DO NOT add extra image references
-- DO NOT remove existing image references
-- DO NOT change image IDs
+🚨 CRITICAL TRANSLATION REQUIREMENTS - READ CAREFULLY:
+
+1. **ABSOLUTE COMPLETENESS - NO EXCEPTIONS**:
+   ❌ DO NOT summarize or condense
+   ❌ DO NOT skip or omit ANY sentence
+   ❌ DO NOT shorten explanations
+   ✅ TRANSLATE EVERY SINGLE WORD
+   ✅ Your translation should be SIMILAR IN LENGTH to the original
+
+2. **STRICT IMAGE REFERENCE RULE**:
+   - Preserve EXACTLY {{ image_count }} image reference(s)
+   - Each [IMG_X_Y] must appear the SAME number of times as in the original
+   - DO NOT add, remove, or modify any image references
+
+3. **EXACT STRUCTURE PRESERVATION**:
+   - Keep ALL sections, subsections, and their exact order
+   - Maintain ALL formatting: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks
+   - Preserve ALL examples, explanations, and details
 
 ---
 
 You are a professional translator specializing in educational content and technical documentation.
-Your task is to translate the following tutorial guide to the specified language while preserving ALL content and structure.
-
-CRITICAL REQUIREMENTS:
-1. **Preserve ALL content**: Do not summarize, condense, or omit any information
-2. **Maintain exact structure**: Keep all sections, subsections, and their order
-3. **Preserve ALL formatting**: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks, etc.
-4. **STRICT IMAGE REFERENCE RULE**: 
-   - ONLY keep image references that EXACTLY match the original text
-   - DO NOT create, add, or modify any image references
-   - This section has {{ image_count }} image(s): {{ available_image_ids }}
-   - Your translation MUST have the same {{ image_count }} image reference(s)
+Your task is to translate the following tutorial guide to the specified language while preserving EVERY SINGLE DETAIL.
 
 Target language: {{ lang }}
 Tutorial content to translate:
 {{ text }}
 
-IMPORTANT: 
-- Translate word-for-word while maintaining the exact same structure and completeness
-- Image references must be EXACTLY as they appear in the original text
-- Verify you have {{ image_count }} image reference(s) in your translation
+⚠️ FINAL CHECK BEFORE SUBMITTING:
+- Is your translation similar in length to the original?
+- Did you translate EVERY sentence without skipping?
+- Do you have exactly {{ image_count }} image reference(s)?
+- Is the structure IDENTICAL to the original?
 """)
 
 PROMPT_TUTORIAL_TRANSLATE_NO_IMAGES = Template("""
-This section has NO images. Your translation should also have NO image references.
+⚠️ This section has NO images. Your translation should also have NO image references.
+
+---
+
+🚨 CRITICAL TRANSLATION REQUIREMENTS - READ CAREFULLY:
+
+1. **ABSOLUTE COMPLETENESS - NO EXCEPTIONS**:
+   ❌ DO NOT summarize or condense
+   ❌ DO NOT skip or omit ANY sentence
+   ❌ DO NOT shorten explanations
+   ✅ TRANSLATE EVERY SINGLE WORD
+   ✅ Your translation should be SIMILAR IN LENGTH to the original
+
+2. **NO IMAGES**: 
+   - This section has no images
+   - DO NOT add any image references
+
+3. **EXACT STRUCTURE PRESERVATION**:
+   - Keep ALL sections, subsections, and their exact order
+   - Maintain ALL formatting: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks
+   - Preserve ALL examples, explanations, and details
 
 ---
 
 You are a professional translator specializing in educational content and technical documentation.
-Your task is to translate the following tutorial guide to the specified language while preserving ALL content and structure.
-
-CRITICAL REQUIREMENTS:
-1. **Preserve ALL content**: Do not summarize, condense, or omit any information
-2. **Maintain exact structure**: Keep all sections, subsections, and their order
-3. **Preserve ALL formatting**: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks, etc.
-4. **NO IMAGES**: This section has no images - do not add any image references
+Your task is to translate the following tutorial guide to the specified language while preserving EVERY SINGLE DETAIL.
 
 Target language: {{ lang }}
 Tutorial content to translate:
 {{ text }}
 
-IMPORTANT: 
-- Translate word-for-word while maintaining the exact same structure and completeness
-- Do NOT add any image references - original has none
+⚠️ FINAL CHECK BEFORE SUBMITTING:
+- Is your translation similar in length to the original?
+- Did you translate EVERY sentence without skipping?
+- Are there NO image references in your translation?
+- Is the structure IDENTICAL to the original?
 """)
 
 # ─────────────────────────────────────────
