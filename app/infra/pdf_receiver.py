@@ -123,39 +123,15 @@ class PDFReceiver:
             import time
             start_time = time.perf_counter()
             
-            # Docling으로 PDF → Markdown 변환 (성능 최적화)
+            # ✅ Docling으로 PDF 변환 (직접 객체 사용)
             doc = _converter.convert(source=url).document
-            
-            # ✅ 디버깅: Docling 문서 구조 확인
-            print(f"[PDFReceiver] 🔍 Docling 문서 구조:", flush=True)
-            print(f"[PDFReceiver]   doc 타입: {type(doc)}", flush=True)
-            print(f"[PDFReceiver]   doc 속성: {dir(doc)[:20]}", flush=True)
-            
-            # 페이지 정보 확인
-            if hasattr(doc, 'pages'):
-                print(f"[PDFReceiver]   ✅ doc.pages 존재: {len(doc.pages)}개 페이지", flush=True)
-            if hasattr(doc, 'num_pages'):
-                print(f"[PDFReceiver]   ✅ doc.num_pages: {doc.num_pages}", flush=True)
-            if hasattr(doc, 'page_count'):
-                print(f"[PDFReceiver]   ✅ doc.page_count: {doc.page_count}", flush=True)
-            
-            markdown_content = doc.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
             
             end_time = time.perf_counter()
             processing_time = end_time - start_time
-            print(f"[PDFReceiver] PDF 변환 완료: {len(markdown_content)}자 ({processing_time:.2f}초)", flush=True)
             
-            # 디버깅: Markdown 내용에서 이미지 패턴 확인
-            img_patterns_in_markdown = list(_IMG_RE.findall(markdown_content))
-            print(f"[PDFReceiver] 전체 Markdown에서 찾은 이미지 패턴: {len(img_patterns_in_markdown)}개", flush=True)
-            for i, (alt, src) in enumerate(img_patterns_in_markdown[:5]):  # 처음 5개만 출력
-                print(f"[PDFReceiver]   전체 이미지 {i+1}: alt='{alt[:30]}...', src='{src[:50]}...'", flush=True)
-            
-            # 디버깅: Markdown 내용 일부 출력
-            print(f"[PDFReceiver] === Markdown 내용 미리보기 ===", flush=True)
-            markdown_preview = markdown_content[:500] + "..." if len(markdown_content) > 500 else markdown_content
-            print(f"[PDFReceiver] {markdown_preview}", flush=True)
-            print(f"[PDFReceiver] === Markdown 내용 끝 ===", flush=True)
+            # 페이지 정보 확인
+            num_pages = len(doc.pages) if hasattr(doc, 'pages') else 0
+            print(f"[PDFReceiver] PDF 변환 완료: {num_pages}개 페이지 ({processing_time:.2f}초)", flush=True)
             
             # GPU 메모리 사용량 모니터링
             if torch.cuda.is_available():
@@ -163,98 +139,85 @@ class PDFReceiver:
                 memory_used = (end_memory - start_memory) / 1024**3
                 print(f"[PDFReceiver] GPU 메모리 사용량 변화: {memory_used:.2f}GB", flush=True)
             
-            # SmolDocling 페이지 구분자로 분할
-            # SmolDocling은 <page_break> 태그를 사용하거나 페이지 번호를 포함할 수 있음
-            if "<page_break>" in markdown_content:
-                pages = markdown_content.split("<page_break>")
-            elif "\f" in markdown_content:  # form feed character
-                pages = markdown_content.split("\f")
-            else:
-                # 페이지 구분자가 없으면 전체를 하나의 페이지로
-                pages = [markdown_content]
-            
         except Exception as e:
             raise ValueError(f"Docling PDF 변환 실패: {e}")
 
+        # ✅ 새로운 방식: doc 객체에서 직접 요소 추출
         elements: List[PageElement] = []
-        remote_imgs: List[Tuple[int, str, str, str]] = []  # (page_idx, alt, url, img_id)
-
-        for idx, pg_md in enumerate(pages):
+        
+        # 페이지별로 요소를 그룹화
+        from collections import defaultdict
+        page_items = defaultdict(lambda: {"texts": [], "images": []})
+        
+        # 1. 텍스트 추출
+        if hasattr(doc, 'texts'):
+            print(f"[PDFReceiver] 텍스트 요소 추출 중: {len(doc.texts)}개", flush=True)
+            for text_item in doc.texts:
+                if text_item.prov:
+                    page_no = text_item.prov[0].page_no
+                    # 텍스트가 있는 경우만 추가
+                    if hasattr(text_item, 'text') and text_item.text.strip():
+                        page_items[page_no]["texts"].append(text_item.text.strip())
+        
+        # 2. 이미지 추출
+        if hasattr(doc, 'pictures'):
+            print(f"[PDFReceiver] 이미지 요소 추출 중: {len(doc.pictures)}개", flush=True)
+            for pic_item in doc.pictures:
+                if pic_item.prov:
+                    page_no = pic_item.prov[0].page_no
+                    # 이미지가 있는 경우만 추가
+                    if hasattr(pic_item, 'image') and pic_item.image:
+                        # base64 data-URI로 변환
+                        if isinstance(pic_item.image.pil_image, bytes):
+                            img_bytes = pic_item.image.pil_image
+                        else:
+                            # PIL Image → bytes
+                            import io
+                            from PIL import Image
+                            buffer = io.BytesIO()
+                            pic_item.image.pil_image.save(buffer, format='PNG')
+                            img_bytes = buffer.getvalue()
+                        
+                        # 캡션 추출 (있으면)
+                        caption = ""
+                        if hasattr(pic_item, 'captions') and pic_item.captions:
+                            caption = pic_item.captions[0].text if hasattr(pic_item.captions[0], 'text') else ""
+                        
+                        page_items[page_no]["images"].append((img_bytes, caption))
+        
+        # 3. 페이지별로 PageElement 생성
+        print(f"[PDFReceiver] 페이지별 요소 생성 시작: {len(page_items)}개 페이지", flush=True)
+        
+        for page_no in sorted(page_items.keys()):
+            items = page_items[page_no]
             image_counter = 1  # 페이지별로 이미지 ID 카운터 초기화
-            if not pg_md.strip():
-                continue
-
-            print(f"[PDFReceiver] 페이지 {idx} 처리 중: {len(pg_md)}자", flush=True)
-
-            # 원본 Markdown에서 이미지 패턴 찾기 (한 번만)
-            img_matches = list(_IMG_RE.findall(pg_md))
-            print(f"[PDFReceiver] 페이지 {idx}에서 찾은 이미지 패턴: {len(img_matches)}개", flush=True)
-            for i, (alt, src) in enumerate(img_matches):
-                print(f"[PDFReceiver]   이미지 {i+1}: alt='{alt[:50]}...', src='{src[:100]}...'", flush=True)
-
-            # (1) 텍스트 처리 - 이미지 매칭 결과를 사용하여 플레이스홀더 생성
-            def _placeholder(m: re.Match) -> str:
-                nonlocal image_counter
-                img_id = f"IMG_{idx}_{image_counter}"
-                image_counter += 1
-                print(f"[PDFReceiver] 이미지 플레이스홀더 생성: {img_id}", flush=True)
-                return f"[{img_id}]"
-
-            text_with_fig = _IMG_RE.sub(_placeholder, pg_md)
-            for para in re.split(r"\n{2,}", text_with_fig):
-                if para.strip():
-                    elements.append(PageElement("text", idx, para.strip()))
-
-            # (2) 이미지 처리 - 이미 매칭된 결과 사용
-            # 카운터는 텍스트 처리 시 이미 증가했으므로 리셋하지 않음
-            # enumerate로 1부터 시작하여 명시적으로 ID 생성
-            for img_idx, (alt, src) in enumerate(img_matches, 1):
-                img_id = f"IMG_{idx}_{img_idx}"
-                
-                print(f"[PDFReceiver] 이미지 처리 중: {img_id}", flush=True)
-                
-                if src.startswith("data:image"):
-                    # data-URI → bytes 변환
-                    _, b64 = src.split(",", 1)
-                    try:
-                        img_bytes = base64.b64decode(b64)
-                        elements.append(PageElement("figure", idx, img_bytes, caption=alt, id=img_id))
-                        print(f"[PDFReceiver] data-URI 이미지 추가: {img_id} ({len(img_bytes)} bytes)", flush=True)
-                    except Exception as e:
-                        print(f"[PDFReceiver] data-URI 디코딩 실패: {img_id} - {e}", flush=True)
-                        continue
-                else:
-                    # remote URL은 나중에 다운로드
-                    remote_imgs.append((idx, alt, src, img_id))
-                    print(f"[PDFReceiver] 원격 이미지 추가: {img_id} -> {src[:100]}...", flush=True)
-
-        # (3) 원격 이미지 다운로드 (동시 8개 제한)
-        if remote_imgs:
-            print(f"[PDFReceiver] 원격 이미지 다운로드 시작: {len(remote_imgs)}개", flush=True)
-            sem = asyncio.Semaphore(8)
             
-            async def _fetch(i: int, url: str):
-                async with sem:
-                    try:
-                        print(f"[PDFReceiver] 이미지 다운로드 중: {url[:100]}...", flush=True)
-                        r = await cli.get(url, follow_redirects=True)
-                        print(f"[PDFReceiver] 이미지 다운로드 성공: {url[:100]}... (상태: {r.status_code})", flush=True)
-                        return i, r
-                    except Exception as e:
-                        print(f"[PDFReceiver] 이미지 다운로드 실패: {url[:100]}... - {e}", flush=True)
-                        return i, e
-
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as cli:
-                resps = await asyncio.gather(*(_fetch(i, u) for i, _, u, _ in remote_imgs))
-
-            for (pg_idx, alt, _, img_id), (i, r) in zip(remote_imgs, resps):
-                if isinstance(r, Exception) or r.status_code != 200:
-                    print(f"[PDFReceiver] 원격 이미지 처리 실패: {img_id} - {r}", flush=True)
-                    continue
-                elements.append(PageElement("figure", pg_idx, r.content, caption=alt, id=img_id))
-                print(f"[PDFReceiver] 원격 이미지 추가: {img_id} ({len(r.content)} bytes)", flush=True)
-        else:
-            print(f"[PDFReceiver] 원격 이미지 없음", flush=True)
+            print(f"[PDFReceiver] 페이지 {page_no} 처리: 텍스트 {len(items['texts'])}개, 이미지 {len(items['images'])}개", flush=True)
+            
+            # (1) 텍스트를 이미지 플레이스홀더와 함께 처리
+            # 이미지 참조를 텍스트에 삽입하기 위해 간단한 전략 사용
+            # 각 페이지의 텍스트 끝에 이미지 플레이스홀더 추가
+            text_content = "\n\n".join(items["texts"])
+            
+            # 이미지 플레이스홀더 추가
+            for img_idx, (img_bytes, caption) in enumerate(items["images"], 1):
+                img_id = f"IMG_{page_no}_{img_idx}"
+                text_content += f"\n\n[{img_id}]"
+                print(f"[PDFReceiver] 이미지 플레이스홀더 생성: {img_id}", flush=True)
+            
+            # 텍스트를 단락으로 분할하여 PageElement 생성
+            for para in re.split(r"\n{2,}", text_content):
+                if para.strip():
+                    elements.append(PageElement("text", page_no, para.strip()))
+            
+            # (2) 이미지 처리 - 이미 추출된 이미지 bytes를 PageElement로 추가
+            for img_idx, (img_bytes, caption) in enumerate(items["images"], 1):
+                img_id = f"IMG_{page_no}_{img_idx}"
+                
+                print(f"[PDFReceiver] 이미지 추가: {img_id} ({len(img_bytes)} bytes)", flush=True)
+                
+                # PageElement로 추가 (이미 bytes 형태)
+                elements.append(PageElement("figure", page_no, img_bytes, caption=caption or "Figure", id=img_id))
 
         if not elements:
             raise ValueError("Docling PDF 파싱 결과가 없습니다")
