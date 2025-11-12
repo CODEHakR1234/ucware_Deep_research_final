@@ -125,6 +125,20 @@ class PDFReceiver:
             
             # Docling으로 PDF → Markdown 변환 (성능 최적화)
             doc = _converter.convert(source=url).document
+            
+            # ✅ 디버깅: Docling 문서 구조 확인
+            print(f"[PDFReceiver] 🔍 Docling 문서 구조:", flush=True)
+            print(f"[PDFReceiver]   doc 타입: {type(doc)}", flush=True)
+            print(f"[PDFReceiver]   doc 속성: {dir(doc)[:20]}", flush=True)
+            
+            # 페이지 정보 확인
+            if hasattr(doc, 'pages'):
+                print(f"[PDFReceiver]   ✅ doc.pages 존재: {len(doc.pages)}개 페이지", flush=True)
+            if hasattr(doc, 'num_pages'):
+                print(f"[PDFReceiver]   ✅ doc.num_pages: {doc.num_pages}", flush=True)
+            if hasattr(doc, 'page_count'):
+                print(f"[PDFReceiver]   ✅ doc.page_count: {doc.page_count}", flush=True)
+            
             markdown_content = doc.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
             
             end_time = time.perf_counter()
@@ -192,10 +206,10 @@ class PDFReceiver:
                     elements.append(PageElement("text", idx, para.strip()))
 
             # (2) 이미지 처리 - 이미 매칭된 결과 사용
-            image_counter = 1  # 카운터 리셋
-            for alt, src in img_matches:  # _IMG_RE.findall(pg_md) 대신 img_matches 사용
-                img_id = f"IMG_{idx}_{image_counter}"
-                image_counter += 1
+            # 카운터는 텍스트 처리 시 이미 증가했으므로 리셋하지 않음
+            # enumerate로 1부터 시작하여 명시적으로 ID 생성
+            for img_idx, (alt, src) in enumerate(img_matches, 1):
+                img_id = f"IMG_{idx}_{img_idx}"
                 
                 print(f"[PDFReceiver] 이미지 처리 중: {img_id}", flush=True)
                 
