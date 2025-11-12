@@ -76,12 +76,15 @@ class LlmEngine(LlmChainIF):
         )
 
         # docs(list[str]) → map‑reduce → str (for *summarize*)
+        # LangChain 0.2.x 호환: output_key 명시
         self._summ_chain = load_summarize_chain(
             self.llm,
             chain_type="map_reduce",
             return_intermediate_steps=False,
             map_prompt=self.map_prompt,
             combine_prompt=self.combine_prompt,
+            input_key="input_documents",
+            output_key="output_text",
         )
 
     # ------------------------------------------------------------------

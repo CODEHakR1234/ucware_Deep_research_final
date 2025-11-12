@@ -11,19 +11,20 @@ Pillow>=10.0.0   # ColPali용 이미지 처리
 # ───────── LangChain 최신 구조 (0.2+) ─────────
 langchain==0.2.16
 langchain-openai==0.1.21
-langchain-chroma>=0.1.4  # ChromaDB 최신 버전 호환성
+langchain-chroma>=0.1.4,<0.2.0  # ChromaDB 0.5.x 호환
 langchain-community==0.2.16
 
 # ───────── LangGraph 요약 에이전트 구성 ─────────
 langgraph==0.2.3
-# (주의) langchain-core는 적지 마세요
+langchain-core>=0.2.38,<0.3.0  # LangChain 0.2.x 호환성 명시
+langsmith>=0.1.17,<0.2.0  # LangChain 0.2.x 호환성
 
 # LangChain experimental splitter
-langchain-experimental>=0.0.15
+langchain-experimental>=0.0.15,<0.1.0  # LangChain 0.2.x 호환
 
 # ───────── 벡터 임베딩 및 벡터 DB ─────────
 sentence-transformers
-chromadb[server]>=0.5.20  # 최신 안정 버전 (0.5.x 계열)
+chromadb[server]>=0.5.20,<0.6.0  # 0.5.x 계열 최신 (LangChain 0.2.x 호환)
 
 # ───────── 머신러닝 및 유사도 계산 ─────────
 scipy>=1.11
