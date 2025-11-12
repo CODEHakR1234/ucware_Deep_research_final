@@ -389,28 +389,42 @@ class GuideGraphBuilder:
         return image_mapping
 
     def _replace_image_ids_with_uris(self, section: str, image_mapping: dict) -> str:
-        """섹션에서 이미지 ID [IMG_X]를 실제 URI로 교체."""
+        """섹션에서 이미지 ID [IMG_X] 또는 [IMG_X:caption]을 실제 URI로 교체."""
         if DEBUG:
             print(f"[GuideGraphBuilder] _replace_image_ids_with_uris 시작: 매핑 {len(image_mapping)}개", flush=True)
         
-        # [IMG_X] 패턴을 찾아서 실제 이미지 태그로 교체
+        # [IMG_X] 또는 [IMG_X:caption] 패턴을 찾아서 실제 이미지 태그로 교체
         def replace_image_id(match):
             img_id = match.group(1)
+            caption_text = match.group(2) if match.lastindex >= 2 else None
+            
             if DEBUG:
-                print(f"[GuideGraphBuilder] 매칭된 이미지 ID: {img_id}", flush=True)
+                print(f"[GuideGraphBuilder] 매칭된 이미지 ID: {img_id} (캡션: {caption_text[:30] if caption_text else 'None'})", flush=True)
             
             if img_id in image_mapping:
                 uri = image_mapping[img_id]
                 if DEBUG:
                     print(f"[GuideGraphBuilder] 매핑 성공: {img_id} -> {uri[:50]}...", flush=True)
-                return f"![figure]({uri})"
+                
+                # 캡션이 있으면 alt 텍스트로 사용
+                if caption_text:
+                    # 캡션에서 특수문자 제거 (alt 텍스트용)
+                    alt_text = caption_text.strip()[:100]  # 100자 제한
+                    return f"![{alt_text}]({uri})"
+                else:
+                    return f"![figure]({uri})"
             else:
                 # 매핑 실패 시 경고
                 print(f"[GuideGraphBuilder] ⚠️ 매핑 실패: {img_id} (매핑에 없음)", flush=True)
                 return f"![이미지 로드 실패]() <!-- {img_id} 매핑 없음 -->"
         
-        # [IMG_X_Y] 패턴을 찾아서 교체 (페이지_번호 형식)
-        section_with_images = re.sub(r'\[(IMG_\d+_\d+)\]', replace_image_id, section)
+        # [IMG_X_Y] 또는 [IMG_X_Y:caption] 패턴을 찾아서 교체
+        # 정규식: [IMG_숫자_숫자] 또는 [IMG_숫자_숫자:캡션내용]
+        section_with_images = re.sub(
+            r'\[(IMG_\d+_\d+)(?::([^\]]+))?\]', 
+            replace_image_id, 
+            section
+        )
         
         if DEBUG:
             print(f"[GuideGraphBuilder] _replace_image_ids_with_uris 완료", flush=True)
