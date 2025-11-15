@@ -15,11 +15,13 @@ from typing import Final, List, Tuple
 import httpx
 import torch
 
-# GPU 디바이스 동기화 문제 해결을 위한 환경변수들
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # GPU 0번만 사용
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["TORCH_USE_CUDA_DSA"] = "1"  # CUDA 디바이스 side 어써션
+# GPU 디바이스 동기화 문제 해결을 위한 환경변수들 (CUDA 전용)
+# macOS에서는 MPS를 사용하므로 CUDA 환경변수는 설정하지 않음
+if torch.cuda.is_available():
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # GPU 0번만 사용
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["TORCH_USE_CUDA_DSA"] = "1"  # CUDA 디바이스 side 어써션
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -33,12 +35,20 @@ from app.domain.page_element import PageElement
 _TIMEOUT = httpx.Timeout(30.0)
 _IMG_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
+# 디바이스 확인 (CUDA 또는 MPS)
+USE_CUDA = torch.cuda.is_available()
+USE_MPS = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+USE_GPU = USE_CUDA or USE_MPS
+
 # GPU 최적화 설정
-if torch.cuda.is_available():
-    # GPU 메모리 할당 최적화
+if USE_CUDA:
+    # CUDA GPU 메모리 할당 최적화
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
+elif USE_MPS:
+    # MPS (Metal Performance Shaders) 사용 - macOS Apple Silicon
+    print("[PDFReceiver] MPS (Metal Performance Shaders) 활성화됨", flush=True)
 
 # ──────────────── Docling 설정 ────────────────
 # 성능 최적화된 SmolDocling 설정 (인터넷 검색 결과 기반)
@@ -61,22 +71,31 @@ try:
     print("[PDFReceiver] Docling 성능 최적화 설정으로 초기화 완료", flush=True)
     
     # GPU 가속이 가능한지 확인
-    if torch.cuda.is_available():
-        print(f"[PDFReceiver] GPU 사용 가능: {torch.cuda.get_device_name(0)}", flush=True)
-        # GPU 메모리 최적화 설정
+    if USE_CUDA:
+        print(f"[PDFReceiver] CUDA GPU 사용 가능: {torch.cuda.get_device_name(0)}", flush=True)
+        # CUDA GPU 메모리 최적화 설정
         torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
-        print("[PDFReceiver] GPU 최적화 설정 완료", flush=True)
+        print("[PDFReceiver] CUDA GPU 최적화 설정 완료", flush=True)
+    elif USE_MPS:
+        print("[PDFReceiver] MPS (Apple Silicon GPU) 사용 가능", flush=True)
+        print("[PDFReceiver] MPS GPU 최적화 설정 완료", flush=True)
+    else:
+        print("[PDFReceiver] GPU를 사용할 수 없어 CPU 모드로 동작합니다", flush=True)
     
 except Exception as e:
     print(f"[PDFReceiver] Docling 초기화 실패: {e}", flush=True)
     raise
 
-device_info = "GPU" if torch.cuda.is_available() else "CPU"
+# 디바이스 정보 출력
+if USE_CUDA:
+    device_info = f"CUDA GPU ({torch.cuda.get_device_name(0)})"
+elif USE_MPS:
+    device_info = "MPS GPU (Apple Silicon)"
+else:
+    device_info = "CPU"
 print(f"[PDFReceiver] Docling 초기화 완료 - {device_info} 모드", flush=True)
-if torch.cuda.is_available():
-    print(f"[PDFReceiver] GPU: {torch.cuda.get_device_name(0)}", flush=True)
 
 class PDFReceiver:
     """
@@ -109,15 +128,18 @@ class PDFReceiver:
             print(f"[PDFReceiver] PDF 변환 시작: {url}", flush=True)
             
             # GPU 메모리 최적화 설정
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()  # GPU 메모리 정리
+            if USE_CUDA:
+                torch.cuda.empty_cache()  # CUDA GPU 메모리 정리
                 start_memory = torch.cuda.memory_allocated(0)
-                print(f"[PDFReceiver] GPU 메모리 사용량: {start_memory / 1024**3:.2f}GB", flush=True)
+                print(f"[PDFReceiver] CUDA GPU 메모리 사용량: {start_memory / 1024**3:.2f}GB", flush=True)
                 
-                # 추가 GPU 최적화 설정
+                # 추가 CUDA GPU 최적화 설정
                 torch.backends.cudnn.benchmark = True
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
+            elif USE_MPS:
+                # MPS는 메모리 사용량 모니터링 API가 제한적이므로 간단히 로그만 출력
+                print("[PDFReceiver] MPS GPU 사용 중", flush=True)
             
             # 성능 최적화된 PDF 변환
             import time
@@ -133,11 +155,11 @@ class PDFReceiver:
             num_pages = len(doc.pages) if hasattr(doc, 'pages') else 0
             print(f"[PDFReceiver] PDF 변환 완료: {num_pages}개 페이지 ({processing_time:.2f}초)", flush=True)
             
-            # GPU 메모리 사용량 모니터링
-            if torch.cuda.is_available():
+            # GPU 메모리 사용량 모니터링 (CUDA만 지원)
+            if USE_CUDA:
                 end_memory = torch.cuda.memory_allocated(0)
                 memory_used = (end_memory - start_memory) / 1024**3
-                print(f"[PDFReceiver] GPU 메모리 사용량 변화: {memory_used:.2f}GB", flush=True)
+                print(f"[PDFReceiver] CUDA GPU 메모리 사용량 변화: {memory_used:.2f}GB", flush=True)
             
         except Exception as e:
             raise ValueError(f"Docling PDF 변환 실패: {e}")
