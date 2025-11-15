@@ -1,18 +1,32 @@
 #!/bin/bash
 set -e
 
-# 임시 디렉터리를 /home/work/skku/tmp로 설정하여 디스크 공간 문제 해결
-
-#TMP_DIR="/home/work/skku/tmp"
-#mkdir -p "$TMP_DIR"
-#export TMPDIR="$TMP_DIR"
-#export TMP="$TMP_DIR"
-#export TEMP="$TMP_DIR"
-
+# macOS용 환경 설정 스크립트
 
 echo "[1] 시스템 패키지 설치"
-sudo apt update
-sudo apt install -y redis-server libgl1 libglib2.0-0
+# macOS용 Homebrew 설치 확인 및 Redis 설치
+if ! command -v brew &> /dev/null; then
+    echo "❌ Homebrew가 설치되어 있지 않습니다. 먼저 Homebrew를 설치해주세요."
+    echo "다음 명령어를 실행하세요:"
+    echo '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    exit 1
+fi
+
+# Redis 설치
+if ! brew list redis &> /dev/null; then
+    echo "Redis 설치 중..."
+    brew install redis
+else
+    echo "✅ Redis가 이미 설치되어 있습니다."
+fi
+
+# Redis 서비스 시작
+echo "Redis 서비스 시작 중..."
+if ! brew services list | grep -q "redis.*started"; then
+    brew services start redis
+else
+    echo "✅ Redis 서비스가 이미 실행 중입니다."
+fi
 
 echo "[2] Python 가상환경 생성 및 활성화"
 python3 -m venv .venv
@@ -23,8 +37,9 @@ pip install --upgrade pip
 pip install -r requirements.txt   # FastAPI/LangChain/Docling 등
 echo "[3-1] ColPali/vision deps 설치"
 pip install "colpali-engine>=0.3.1" "transformers>4.45.0" pillow PyMuPDF httpx chromadb
-echo "[3-2] PyTorch (CUDA 12.1) 설치"
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+echo "[3-2] PyTorch (macOS - MPS 지원) 설치"
+# macOS용 PyTorch 설치 (Metal Performance Shaders 지원)
+pip install torch torchvision torchaudio
 
 # ──────────────── LLM / Embedding Provider 선택 ────────────────
 echo ""
@@ -36,9 +51,9 @@ read -p "선택 [1/2]: " PROVIDER_CHOICE
 echo -n "🔑 Tavily API Key를 입력하세요: "
 read -r TAVILY_API_KEY
 
-echo -n "🎮 사용할 GPU 번호를 입력하세요 (여러 장이면 콤마, 기본 0): "
-read -r GPU_NUMBER
-GPU_NUMBER=${GPU_NUMBER:-0}
+# macOS는 CUDA를 사용하지 않음 (MPS 사용 또는 CPU)
+echo "ℹ️  macOS에서는 CUDA를 사용하지 않습니다. (MPS 또는 CPU 사용)"
+GPU_NUMBER=""
 
 # ──────────────── 캡셔닝 백엔드 선택 ────────────────
 echo ""
@@ -105,6 +120,7 @@ EMBEDDING_MODEL_NAME=$EMBEDDING_MODEL_NAME
 LLM_MODEL_NAME=$LLM_MODEL_NAME
 OPENAI_API_KEY="$OPENAI_API_KEY"
 TAVILY_API_KEY="$TAVILY_API_KEY"
+# macOS는 CUDA를 사용하지 않음 (MPS 또는 CPU 사용)
 CUDA_VISIBLE_DEVICES=$GPU_NUMBER
 # ───────── 캡셔닝 설정 ─────────
 CAPTION_BACKEND=$CAPTION_BACKEND

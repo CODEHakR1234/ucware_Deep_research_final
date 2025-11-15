@@ -62,7 +62,7 @@ class PatchedChatOpenAI(ChatOpenAI):
     
     def _combine_llm_outputs(self, llm_outputs: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
         """여러 LLM 출력의 토큰 사용량을 안전하게 합산."""
-        overall_token_usage: Dict[str, int] = {}
+        overall_token_usage: Dict[str, Any] = {}
         system_fingerprint = None
         
         for output in llm_outputs:
@@ -73,10 +73,29 @@ class PatchedChatOpenAI(ChatOpenAI):
             if token_usage:
                 for k, v in token_usage.items():
                     if v is not None:  # None 체크 추가
-                        if k in overall_token_usage:
-                            overall_token_usage[k] += v
-                        else:
-                            overall_token_usage[k] = v
+                        # v가 딕셔너리인 경우 처리 (중첩된 token_usage 구조)
+                        if isinstance(v, dict):
+                            # 딕셔너리인 경우, 값을 합산할 수 없으므로 첫 번째 값을 사용하거나 합산
+                            if k not in overall_token_usage:
+                                overall_token_usage[k] = {}
+                            if isinstance(overall_token_usage[k], dict):
+                                # 중첩 딕셔너리 병합
+                                for sub_k, sub_v in v.items():
+                                    if isinstance(sub_v, (int, float)):
+                                        if sub_k in overall_token_usage[k]:
+                                            overall_token_usage[k][sub_k] += sub_v
+                                        else:
+                                            overall_token_usage[k][sub_k] = sub_v
+                                continue
+                            # overall_token_usage[k]가 정수인데 v가 딕셔너리면 v의 합계 사용
+                            total = sum(sub_v for sub_v in v.values() if isinstance(sub_v, (int, float)))
+                            overall_token_usage[k] = total
+                        elif isinstance(v, (int, float)):
+                            # v가 정수/실수인 경우 기존 로직
+                            if k in overall_token_usage:
+                                overall_token_usage[k] += v
+                            else:
+                                overall_token_usage[k] = v
             
             if system_fingerprint is None:
                 system_fingerprint = output.get("system_fingerprint")
