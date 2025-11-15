@@ -17,13 +17,14 @@ LLM 기반 Q&A 및 Map-Reduce 요약기.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Dict, Any, Optional
 import re
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.chains.summarize import load_summarize_chain
 from langchain.docstore.document import Document
+from langchain_openai import ChatOpenAI
 
 from app.infra.llm_factory import get_llm_instance
 from app.domain.interfaces import LlmChainIF, TextChunk
@@ -49,6 +50,42 @@ Please combine the summaries in a concise manner.
 
 /no_think
 """
+
+# ───────────────────── LangChain 버그 패치 ─────────────────────
+
+class PatchedChatOpenAI(ChatOpenAI):
+    """vLLM 호환성을 위해 _combine_llm_outputs를 패치한 ChatOpenAI.
+    
+    vLLM의 OpenAI 호환 API가 토큰 사용량 정보를 제대로 반환하지 않아
+    LangChain의 _combine_llm_outputs에서 None + None 오류가 발생하는 문제를 해결.
+    """
+    
+    def _combine_llm_outputs(self, llm_outputs: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
+        """여러 LLM 출력의 토큰 사용량을 안전하게 합산."""
+        overall_token_usage: Dict[str, int] = {}
+        system_fingerprint = None
+        
+        for output in llm_outputs:
+            if output is None:
+                continue
+                
+            token_usage = output.get("token_usage", {})
+            if token_usage:
+                for k, v in token_usage.items():
+                    if v is not None:  # None 체크 추가
+                        if k in overall_token_usage:
+                            overall_token_usage[k] += v
+                        else:
+                            overall_token_usage[k] = v
+            
+            if system_fingerprint is None:
+                system_fingerprint = output.get("system_fingerprint")
+        
+        combined = {"token_usage": overall_token_usage, "model_name": self.model_name}
+        if system_fingerprint:
+            combined["system_fingerprint"] = system_fingerprint
+        
+        return combined
 
 # ───────────────────── LLM 엔진 구현체 ─────────────────────
 

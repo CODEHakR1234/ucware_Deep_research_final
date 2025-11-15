@@ -81,7 +81,6 @@ if [ "$PROVIDER_CHOICE" == "2" ]; then
     LLM_PROVIDER="hf"
     EMBEDDING_MODEL_NAME="BAAI/bge-m3"
     LLM_MODEL_NAME="Qwen/Qwen3-30B-A3B-GPTQ-Int4"
-    OPENAI_API_KEY=""
 else
     LLM_PROVIDER="openai"
     EMBEDDING_MODEL_NAME="text-embedding-ada-002"

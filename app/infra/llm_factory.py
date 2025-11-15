@@ -12,7 +12,10 @@ API 교체·로컬 서버 전환 등을 한 곳에서 관리할 수 있게 한�
 """
 
 import os
-from langchain_openai import ChatOpenAI
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.infra.llm_engine import PatchedChatOpenAI
 # HuggingFaceHub 사용 시 주석 해제
 # from langchain import HuggingFaceHub
 
@@ -34,18 +37,21 @@ def get_llm_instance(temperature: float = 0.5):
     BaseChatModel
         LangChain 호환 LLM 객체(OpenAI 또는 HF).
     """
+    # vLLM 호환성을 위해 패치된 ChatOpenAI 사용
+    from app.infra.llm_engine import PatchedChatOpenAI
+    
     if LLM_PROVIDER == "hf":
         # HuggingFaceHub 사용 예시(필요 시 주석 해제)
         # return HuggingFaceHub(
         #     repo_id=LLM_MODEL_NAME,
         #     model_kwargs={"temperature": temperature},
         # )
-        return ChatOpenAI(
+        return PatchedChatOpenAI(
             model_name=LLM_MODEL_NAME,
             temperature=temperature,
             max_tokens=1000,
             openai_api_base=os.getenv("OPENAI_API_BASE", "http://localhost:12000/v1")
         )
-    # 기본: OpenAI ChatCompletion API
-    return ChatOpenAI(model_name=LLM_MODEL_NAME, temperature=temperature, max_tokens=1000)
+    # 기본: OpenAI ChatCompletion API (패치 버전 사용)
+    return PatchedChatOpenAI(model_name=LLM_MODEL_NAME, temperature=temperature, max_tokens=1000)
 

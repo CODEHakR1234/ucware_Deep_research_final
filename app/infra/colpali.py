@@ -352,7 +352,7 @@ class Colpali:
         answer = self._postfix(raw)
         
         # 생성 완료 후 이미지 파일 삭제 (임베딩은 Chroma에 보존)
-        self._cleanup_images(url)
+        # self._cleanup_images(url) 일단 삭제 배제하고, 추후 용량 최적화 방법 고려해보기기
 
         return {
             "answer": answer,
@@ -362,15 +362,25 @@ class Colpali:
         }
 
     def _cleanup_images(self, url):
-        """생성 완료 후 이미지 파일 삭제 (임베딩은 Chroma에 보존)"""
+        """생성 완료 후 이미지 파일과 Chroma 컬렉션 모두 삭제"""
         try:
             pdf_basename = _get_collection_name(url)
+            
+            # 1. 이미지 파일 삭제
             cache_dir = os.getenv("COLPALI_IMAGE_CACHE", "./colpali_images")
             out_dir = os.path.join(cache_dir, pdf_basename)
-            
             if os.path.exists(out_dir):
                 import shutil
                 shutil.rmtree(out_dir)
+            
+            # 2. Chroma 컬렉션 삭제 (다음 요청에서 재색인되도록)
+            client = self.vdb.client
+            coll_name = _get_collection_name(url)
+            try:
+                client.delete_collection(name=coll_name)
+            except Exception:
+                pass  # 컬렉션이 없어도 무시
+                
         except Exception:
             pass  # 삭제 실패해도 서비스 영향 없음
 
