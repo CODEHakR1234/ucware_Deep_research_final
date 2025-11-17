@@ -105,9 +105,9 @@ class PDFReceiver:
     """
     
     def __init__(self):
-        # 간단한 메모리 캐시 (URL → 처리 결과)
-        self._cache = {}
-        self._cache_size_limit = 10  # 최대 캐시 크기
+        # 인메모리 캐시 비활성화 (요청마다 새로 추출)
+        self._cache = None
+        self._cache_size_limit = 0  # 사용하지 않음
 
     async def fetch_and_extract_elements(self, url: str) -> List[PageElement]:
         """
@@ -119,10 +119,7 @@ class PDFReceiver:
         List[PageElement]
             추출된 페이지 요소들 (text, figure, table, graph)
         """
-        # 캐시 확인
-        if url in self._cache:
-            print(f"[PDFReceiver] 캐시 히트: {url}", flush=True)
-            return self._cache[url]
+        # 인메모리 캐시 비활성화됨
         
         try:
             print(f"[PDFReceiver] PDF 변환 시작: {url}", flush=True)
@@ -267,14 +264,7 @@ class PDFReceiver:
         if not elements:
             raise ValueError("Docling PDF 파싱 결과가 없습니다")
         
-        # 결과를 캐시에 저장
-        self._cache[url] = elements
-        
-        # 캐시 크기 제한 관리
-        if len(self._cache) > self._cache_size_limit:
-            # 가장 오래된 항목 제거 (FIFO)
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
+        # 인메모리 캐시 저장 비활성화
         
         print(f"[PDFReceiver] 요소 추출 완료: {len(elements)}개 (텍스트: {len([e for e in elements if e.kind == 'text'])}, 이미지: {len([e for e in elements if e.kind in ('figure', 'table', 'graph')])})", flush=True)
         

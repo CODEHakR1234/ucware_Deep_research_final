@@ -24,13 +24,15 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME")
 
 # ───────────────────── 팩토리 함수 ─────────────────────
-def get_llm_instance(temperature: float = 0.5):
+def get_llm_instance(temperature: float = 0.5, max_tokens: int = 1000):
     """LLM 인스턴스를 반환한다.
 
     Args
     ----
     temperature : float, optional
         샘플링 온도. 기본 0.5.
+    max_tokens : int, optional
+        최대 출력 토큰 수. 기본 1000.
 
     Returns
     -------
@@ -49,9 +51,9 @@ def get_llm_instance(temperature: float = 0.5):
         return PatchedChatOpenAI(
             model_name=LLM_MODEL_NAME,
             temperature=temperature,
-            max_tokens=1000,
+            max_tokens=max_tokens,
             openai_api_base=os.getenv("OPENAI_API_BASE", "http://localhost:12000/v1")
         )
     # 기본: OpenAI ChatCompletion API (패치 버전 사용)
-    return PatchedChatOpenAI(model_name=LLM_MODEL_NAME, temperature=temperature, max_tokens=1000)
+    return PatchedChatOpenAI(model_name=LLM_MODEL_NAME, temperature=temperature, max_tokens=max_tokens)
 

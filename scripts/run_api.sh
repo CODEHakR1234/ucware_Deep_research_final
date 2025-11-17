@@ -56,7 +56,7 @@ echo "[✅] Chroma 서버 연결 성공!"
 # [4] FastAPI 서버 실행 (백그라운드 + 로그)
 # ───────────────────────────────
 echo "[🚀] FastAPI 서버를 포트 $PORT 에서 실행 중..."
-nohup uvicorn app.main:app --host 0.0.0.0 --port $PORT > fastapi.log 2>&1 &
+nohup uvicorn app.main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 120 > fastapi.log 2>&1 &
 
 sleep 5
 

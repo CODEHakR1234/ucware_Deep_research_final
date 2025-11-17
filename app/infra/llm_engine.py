@@ -118,9 +118,9 @@ class LlmEngine(LlmChainIF):
         _qa_chain: prompt → LLM → 출력 문자열 파서 체인.
         _summ_chain: 문서 리스트에 대한 map-reduce 요약 체인.
     """
-    def __init__(self, *, temperature: float = 0.7):
+    def __init__(self, *, temperature: float = 0.7, max_tokens: int = 1000):
         # Shared LLM instance
-        self.llm = get_llm_instance(temperature=temperature)
+        self.llm = get_llm_instance(temperature=temperature, max_tokens=max_tokens)
         self.map_prompt = PromptTemplate(template=MAP_PROMPT, input_variables=["text"])
         self.combine_prompt = PromptTemplate(template=COMBINE_PROMPT, input_variables=["text"])
 

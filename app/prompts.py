@@ -125,219 +125,252 @@ Answer: {{ text }}
 """)
 
 # ─────────────────────────────────────────────────────────────
-# 7. Tutorial 번역 (tutorial_translate)
+# 7. Tutorial 번역 (tutorial_translate) - 간소화
 # ─────────────────────────────────────────────────────────────
 PROMPT_TUTORIAL_TRANSLATE = Template("""
-You are a professional translator specializing in educational content and technical documentation.
-Your task is to translate the following tutorial guide to the specified language while preserving ALL content and structure.
+You are a professional translator.
 
-CRITICAL REQUIREMENTS:
-1. **Preserve ALL content**: Do not summarize, condense, or omit any information
-2. **Maintain exact structure**: Keep all sections, subsections, and their order
-3. **Preserve ALL formatting**: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks, etc.
-4. **STRICT IMAGE REFERENCE RULE**: 
-   - ONLY keep image references that EXACTLY match the original text
-   - DO NOT create, add, or modify any image references
-   - Copy EXACT image IDs from original (e.g., [IMG_3_1], [IMG_4_1], [IMG_13_1])
-   - DO NOT change image IDs (e.g., don't change [IMG_3_1] to [IMG_1_1])
-   - DO NOT create new image references that don't exist in original
-   - If original has no images, output should have no images
-5. **Preserve ALL links**: Keep all URLs and references unchanged
-6. **Maintain educational tone**: Keep the tutor's notes and explanations intact
-7. **Preserve technical accuracy**: Maintain all technical terms and concepts
-8. **Keep ALL bullet points**: Do not reduce or combine bullet points
-9. **Preserve ALL examples**: Keep all examples and their explanations
-10. **Maintain ALL key takeaways**: Keep the complete "Key takeaways" section
+Task: Translate this tutorial to {{ lang }}.
 
-ABSOLUTE FORBIDDEN ACTIONS:
-- ❌ DO NOT create new image references like [IMG_X_Y]
-- ❌ DO NOT add image references where none existed
-- ❌ DO NOT change existing image IDs
-- ❌ DO NOT mention images that don't exist in the original
+RULES:
+1. Translate EVERYTHING - don't skip or summarize
+2. Keep [IMG_X_Y] tokens EXACTLY as they are
+3. Preserve all structure (headings, lists, formatting)
+4. Maintain the same length and detail
 
 Target language: {{ lang }}
-Tutorial content to translate:
-{{ text }}
 
-IMPORTANT: 
-- Translate word-for-word while maintaining the exact same structure and completeness
-- Do not add, remove, or modify any content except for the language translation itself
-- Image references must be EXACTLY as they appear in the original text
-- If you are unsure about an image reference, DO NOT include it
+Content to translate:
+{{ text }}
 """)
 
 # ─────────────────────────────────────────
-# 섹션별 번역 프롬프트 (이미지 체크 포함)
+# 섹션별 번역 프롬프트 (이미지 체크 포함) - 간소화
 # ─────────────────────────────────────────
 PROMPT_TUTORIAL_TRANSLATE_WITH_IMAGES = Template("""
-📋 This section contains {{ image_count }} image reference(s): {{ available_image_ids }}
+You are a professional translator.
 
-🚨 CRITICAL TRANSLATION REQUIREMENTS - READ CAREFULLY:
+Task: Translate the tutorial section below to {{ lang }}.
 
-1. **ABSOLUTE COMPLETENESS - NO EXCEPTIONS**:
-   ❌ DO NOT summarize or condense
-   ❌ DO NOT skip or omit ANY sentence
-   ❌ DO NOT shorten explanations
-   ✅ TRANSLATE EVERY SINGLE WORD
-   ✅ Your translation should be SIMILAR IN LENGTH to the original
+CRITICAL RULES:
 
-2. **STRICT IMAGE REFERENCE RULE**:
-   - Preserve EXACTLY {{ image_count }} image reference(s)
-   - Each [IMG_X_Y] must appear the SAME number of times as in the original
-   - DO NOT add, remove, or modify any image references
+**1. Translate EVERYTHING**
+- Every sentence, paragraph, and list item
+- Keep the same length and detail level
+- Don't skip or summarize anything
 
-3. **EXACT STRUCTURE PRESERVATION**:
-   - Keep ALL sections, subsections, and their exact order
-   - Maintain ALL formatting: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks
-   - Preserve ALL examples, explanations, and details
+**2. Image References ({{ image_count }} in this section: {{ available_image_ids }})**
+- Keep [IMG_X_Y] tokens EXACTLY as they are
+- [IMG_4_1] stays as [IMG_4_1] - DO NOT translate or modify
+- Must have exactly {{ image_count }} image reference(s) in translation
+
+Example:
+- Original: "The architecture [IMG_4_1] shows..."
+- ✅ Correct: "아키텍처 [IMG_4_1]는 보여줍니다..."
+- ❌ Wrong: "아키텍처는 보여줍니다..." (missing image)
+
+**3. Preserve Structure**
+- Keep all headings (# ## ###)
+- Keep all formatting (**bold**, *italic*, lists)
+- Keep all line breaks
 
 ---
 
-You are a professional translator specializing in educational content and technical documentation.
-Your task is to translate the following tutorial guide to the specified language while preserving EVERY SINGLE DETAIL.
-
-Target language: {{ lang }}
-Tutorial content to translate:
+Content to translate:
 {{ text }}
 
-⚠️ FINAL CHECK BEFORE SUBMITTING:
-- Is your translation similar in length to the original?
-- Did you translate EVERY sentence without skipping?
-- Do you have exactly {{ image_count }} image reference(s)?
-- Is the structure IDENTICAL to the original?
+---
+
+Check before submitting:
+- Translated everything? Same length?
+- {{ image_count }} [IMG_*] tokens present and unchanged?
+- Structure identical?
 """)
 
 PROMPT_TUTORIAL_TRANSLATE_NO_IMAGES = Template("""
-⚠️ This section has NO images. Your translation should also have NO image references.
+You are a professional translator.
+
+Task: Translate the tutorial section below to {{ lang }}.
+
+⚠️ This section has NO images.
+
+CRITICAL RULES:
+
+**1. Translate EVERYTHING**
+- Every sentence, paragraph, and list item
+- Keep the same length and detail level
+- Don't skip or summarize anything
+
+**2. NO Images**
+- This section has no [IMG_*] tokens
+- Don't add any image references
+
+**3. Preserve Structure**
+- Keep all headings (# ## ###)
+- Keep all formatting (**bold**, *italic*, lists)
+- Keep all line breaks
 
 ---
 
-🚨 CRITICAL TRANSLATION REQUIREMENTS - READ CAREFULLY:
-
-1. **ABSOLUTE COMPLETENESS - NO EXCEPTIONS**:
-   ❌ DO NOT summarize or condense
-   ❌ DO NOT skip or omit ANY sentence
-   ❌ DO NOT shorten explanations
-   ✅ TRANSLATE EVERY SINGLE WORD
-   ✅ Your translation should be SIMILAR IN LENGTH to the original
-
-2. **NO IMAGES**: 
-   - This section has no images
-   - DO NOT add any image references
-
-3. **EXACT STRUCTURE PRESERVATION**:
-   - Keep ALL sections, subsections, and their exact order
-   - Maintain ALL formatting: Headers (# ## ###), lists (- *), bold (**), italic (*), code blocks
-   - Preserve ALL examples, explanations, and details
-
----
-
-You are a professional translator specializing in educational content and technical documentation.
-Your task is to translate the following tutorial guide to the specified language while preserving EVERY SINGLE DETAIL.
-
-Target language: {{ lang }}
-Tutorial content to translate:
+Content to translate:
 {{ text }}
 
-⚠️ FINAL CHECK BEFORE SUBMITTING:
-- Is your translation similar in length to the original?
-- Did you translate EVERY sentence without skipping?
-- Are there NO image references in your translation?
-- Is the structure IDENTICAL to the original?
+---
+
+Check before submitting:
+- Translated everything? Same length?
+- NO [IMG_*] tokens in translation?
+- Structure identical?
 """)
 
 # ─────────────────────────────────────────
-# 새 멀티모달 자습서용 프롬프트
+# 새 멀티모달 자습서용 프롬프트 (간소화)
 # ─────────────────────────────────────────
 PROMPT_TUTORIAL = Template("""
-You are an expert tutor.
-Using the *semantic chunks* below, write a self-study guide
-for a learner.
+You are an expert tutor creating a comprehensive self-study guide.
 
-Rules
------
-• Output in Markdown (H1~H3 headings).
-• **STRICT IMAGE REFERENCE RULE**: 
-  - The chunks below contain image placeholders like [IMG_3_1], [IMG_4_1], [IMG_13_1], etc.
-  - ONLY use image IDs that EXACTLY appear in the chunks below
-  - Copy the EXACT image ID from chunks when referencing images
-  - **Each image should be referenced ONLY ONCE** - do not repeat the same image multiple times
-  - Place the image reference where it is MOST relevant in your explanation
-  - DO NOT create or imagine new image IDs
-  - If no [IMG_X_Y] pattern exists in chunks, do not add any images
-• After the FIRST reference to each Figure/Table, add "**Tutor's note:** …" line explaining it.
-• If you need to mention the same concept again, just reference it verbally (e.g., "as shown in the figure above")
-• Keep each section ≤ 200 words if possible.
-• End with "Key takeaways" bulleted list.
+Your task: Transform the chunks below into a complete tutorial that helps learners understand the document.
 
-ABSOLUTE FORBIDDEN ACTIONS:
-- ❌ DO NOT create new image IDs that don't exist in chunks
-- ❌ DO NOT modify existing image IDs (e.g., changing [IMG_3_1] to [IMG_1_1])
-- ❌ DO NOT add image references where none existed in chunks
-- ❌ DO NOT mention images without using their exact [IMG_X_Y] format from chunks
+## Guidelines:
 
-Chunks:
-{{ chunks }}
-""")
+**1. Structure**
+- Create a title (# H1) and table of contents
+- Organize into clear sections (## H2) and sub-topics (### H3)
+- Follow a logical learning flow
 
-# ─────────────────────────────────────────
-# 섹션별 이미지 제한 프롬프트
-# ─────────────────────────────────────────
-PROMPT_TUTORIAL_SECTION_WITH_IMAGES = Template("""
-📋 Available image IDs for this section ONLY: {{ available_image_ids }}
+**2. Content**
+- Explain concepts clearly and naturally
+- Use examples when helpful
+- Make complex ideas accessible
 
-🚨 STRICT IMAGE POLICY:
-1. Use ONLY the {{ image_count }} image(s) listed above
-2. Each image should appear EXACTLY ONCE in your explanation
-3. The chunks below already contain placeholders [IMG_X_Y] showing where images appear in the original document
-4. You can either:
-   - Keep the placeholder where it is (if it fits your explanation)
-   - Move it to a better location (if it makes more sense)
-   - BUT: Use each image ID only ONCE
+**3. Images**
+The chunks contain image placeholders like [IMG_3_1], [IMG_4_1], etc.
+- Use ONLY image IDs that appear in chunks
+- Use each image EXACTLY ONCE
+- Place [IMG_X_Y] where it helps understanding
+- After each image, briefly explain what it shows (1-2 sentences)
+- DO NOT create new image IDs
 
-✅ GOOD example:
-   "The transformer architecture [IMG_3_1] uses attention..."
-   (image used once, naturally placed)
+Example:
+```
+The transformer uses encoder and decoder stacks.
 
-❌ BAD example:
-   "The architecture [IMG_3_1] processes... Later, [IMG_3_1] shows..."
-   (same image used twice - FORBIDDEN!)
+[IMG_4_1]
+
+The diagram shows the encoder processing input and decoder generating output.
+```
+
+**4. Key Takeaways**
+- End each major section with "### Key Points" (3-5 bullets)
+- Include final "## Key Takeaways" section at the end
 
 ---
 
-You are an expert tutor.
-Using the *semantic chunks* below, write a self-study guide for a learner.
-
-Rules
------
-• Output in Markdown (H1~H3 headings).
-• Use ONLY the {{ image_count }} image(s) listed at the top: {{ available_image_ids }}
-• Each image should be referenced ONLY ONCE in your explanation
-• After the FIRST reference to each Figure/Table, add "**Tutor's note:** …" line explaining it.
-• If you need to mention the same concept again, just reference it verbally (e.g., "as shown in the figure above")
-• Keep each section ≤ 200 words if possible.
-• End with "Key takeaways" bulleted list.
-
-Chunks:
+Source chunks:
 {{ chunks }}
+
+---
+
+Remember:
+- Use all available images exactly once
+- Keep explanations clear and natural
+- Make it easy to learn from
+""")
+
+# ─────────────────────────────────────────
+# 섹션별 이미지 제한 프롬프트 (간소화)
+# ─────────────────────────────────────────
+PROMPT_TUTORIAL_SECTION_WITH_IMAGES = Template("""
+You are an expert tutor creating a self-study guide based on a specific document.
+
+Your task: Write a tutorial section that explains ONLY the concepts and information from the chunks below.
+
+🚨 CRITICAL RULES:
+- ONLY use information that appears in the chunks below
+- DO NOT invent concepts, examples, or information not in the chunks
+- DO NOT add generic knowledge or examples unrelated to the chunks
+- Base your explanation STRICTLY on what is written in the chunks
+
+## Guidelines:
+
+**1. Topic & Structure**
+- Identify the main topic from the chunks (not generic topics)
+- Use Markdown headings (## for main topic, ### for sub-topics)
+- Use actual terms, names, and concepts from the chunks
+
+**2. Explanation**
+- Explain ONLY what is described in the chunks
+- Use specific examples, formulas, or details from the chunks
+- If the chunks mention specific methods, algorithms, or techniques, explain those
+- Keep language accessible but accurate to the source material
+
+**3. Images ({{ image_count }} available: {{ available_image_ids }})**
+- Use each image EXACTLY ONCE where it helps understand the chunk content
+- Place image reference like: [IMG_4_1]
+- After the image, explain what it shows based on the chunk context (1-2 sentences)
+- DO NOT create new image IDs - only use: {{ available_image_ids }}
+
+**4. Key Points**
+- End with "### Key Points" section
+- 3-5 bullet points summarizing the main concepts from the chunks
+- Use actual terminology from the chunks
+
+---
+
+Source chunks (use ONLY this information):
+{{ chunks }}
+
+---
+
+Remember:
+- Extract and explain ONLY what is in the chunks above
+- Use all {{ image_count }} image(s) exactly once
+- Do not add generic programming or learning examples unless they appear in the chunks
+- Be specific to the document content, not generic
 """)
 
 PROMPT_TUTORIAL_SECTION_NO_IMAGES = Template("""
-⚠️ This section has NO images available. 
-DO NOT reference ANY images. Write text-only explanation.
+You are an expert tutor creating a self-study guide based on a specific document.
+
+Your task: Write a tutorial section that explains ONLY the concepts and information from the chunks below.
+
+🚨 CRITICAL RULES:
+- ONLY use information that appears in the chunks below
+- DO NOT invent concepts, examples, or information not in the chunks
+- DO NOT add generic knowledge or examples unrelated to the chunks
+- Base your explanation STRICTLY on what is written in the chunks
+
+⚠️ Note: This section has NO images - focus on clear text explanations.
+
+## Guidelines:
+
+**1. Topic & Structure**
+- Identify the main topic from the chunks (not generic topics)
+- Use Markdown headings (## for main topic, ### for sub-topics)
+- Use actual terms, names, and concepts from the chunks
+
+**2. Explanation**
+- Explain ONLY what is described in the chunks
+- Use specific examples, formulas, or details from the chunks
+- If the chunks mention specific methods, algorithms, or techniques, explain those
+- Break down complex ideas step-by-step based on chunk content
+- Keep language accessible but accurate to the source material
+
+**3. Key Points**
+- End with "### Key Points" section
+- 3-5 bullet points summarizing the main concepts from the chunks
+- Use actual terminology from the chunks
 
 ---
 
-You are an expert tutor.
-Using the *semantic chunks* below, write a self-study guide for a learner.
-
-Rules
------
-• Output in Markdown (H1~H3 headings).
-• NO images available - write text-only explanation
-• Keep each section ≤ 200 words if possible.
-• End with "Key takeaways" bulleted list.
-
-Chunks:
+Source chunks (use ONLY this information):
 {{ chunks }}
+
+---
+
+Remember:
+- Extract and explain ONLY what is in the chunks above
+- NO images available - explain everything with text
+- Do not add generic programming or learning examples unless they appear in the chunks
+- Be specific to the document content, not generic
 """)
