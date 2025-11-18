@@ -117,6 +117,34 @@ class GuideGraphBuilder:
             groups = self.grouper.group_chunks(st.chunks)
             st.log.append(f"청크 그룹화 완료: {len(groups)}개 그룹")
             
+            # 디버깅: 각 그룹의 상세 정보 및 전체 내용 출력
+            for i, grp in enumerate(groups, 1):
+                chunk_pages = [c.page for c in grp]
+                chunk_images = []
+                for chunk in grp:
+                    for img_id, _ in chunk.figs:
+                        chunk_images.append(img_id)
+                
+                # 그룹 요약 정보
+                st.log.append(
+                    f"그룹 {i}: {len(grp)}개 청크, "
+                    f"페이지 {min(chunk_pages)}-{max(chunk_pages)}, "
+                    f"이미지 {sorted(chunk_images) if chunk_images else '없음'}, "
+                    f"총 {sum(len(c.text) for c in grp)}자"
+                )
+                
+                # 각 청크의 전체 내용 출력
+                for j, chunk in enumerate(grp, 1):
+                    chunk_imgs = [img_id for img_id, _ in chunk.figs]
+                    img_info = f", 이미지: {sorted(chunk_imgs)}" if chunk_imgs else ""
+                    st.log.append(f"  청크 {j} (페이지 {chunk.page}{img_info}):")
+                    st.log.append(f"    {chunk.text}")
+                
+                # 그룹 내 모든 청크를 합친 전체 내용
+                combined_text = "\n".join(c.text for c in grp)
+                st.log.append(f"  → 그룹 {i} 전체 내용 ({len(combined_text)}자):")
+                st.log.append(f"    {combined_text[:500]}{'...' if len(combined_text) > 500 else ''}")
+            
             # 병렬 섹션 생성
             async def _generate_one_section(grp, idx):
                 try:
@@ -144,8 +172,9 @@ class GuideGraphBuilder:
                     section = await self.llm.execute(prompt)
                     return idx, section
                 except Exception as e:
-                    st.log.append(f"섹션 {idx} 생성 실패")
-                    return idx, f"## 섹션 {idx}\n\n(생성 실패)"
+                    error_msg = str(e)
+                    st.log.append(f"섹션 {idx} 생성 실패: {error_msg[:200]}")
+                    return idx, f"## 섹션 {idx}\n\n(생성 실패: {error_msg[:100]})"
             
             # 모든 그룹 병렬 처리
             tasks = [_generate_one_section(grp, i) for i, grp in enumerate(groups, 1)]
@@ -201,7 +230,8 @@ class GuideGraphBuilder:
                     translated_section = await self.llm.execute(prompt)
                     return idx, translated_section
                 except Exception as e:
-                    st.log.append(f"섹션 {idx+1} 번역 실패 (원본 사용)")
+                    error_msg = str(e)
+                    st.log.append(f"섹션 {idx+1} 번역 실패 (원본 사용): {error_msg[:200]}")
                     return idx, section
             
             # 모든 섹션 병렬 번역

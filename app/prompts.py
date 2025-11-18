@@ -310,11 +310,6 @@ Your task: Write a tutorial section that explains ONLY the concepts and informat
 - After the image, explain what it shows based on the chunk context (1-2 sentences)
 - DO NOT create new image IDs - only use: {{ available_image_ids }}
 
-**4. Key Points**
-- End with "### Key Points" section
-- 3-5 bullet points summarizing the main concepts from the chunks
-- Use actual terminology from the chunks
-
 ---
 
 Source chunks (use ONLY this information):
@@ -355,11 +350,6 @@ Your task: Write a tutorial section that explains ONLY the concepts and informat
 - If the chunks mention specific methods, algorithms, or techniques, explain those
 - Break down complex ideas step-by-step based on chunk content
 - Keep language accessible but accurate to the source material
-
-**3. Key Points**
-- End with "### Key Points" section
-- 3-5 bullet points summarizing the main concepts from the chunks
-- Use actual terminology from the chunks
 
 ---
 

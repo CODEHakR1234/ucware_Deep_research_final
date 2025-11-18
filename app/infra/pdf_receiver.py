@@ -108,6 +108,94 @@ class PDFReceiver:
         # 인메모리 캐시 비활성화 (요청마다 새로 추출)
         self._cache = None
         self._cache_size_limit = 0  # 사용하지 않음
+    
+    def _get_bbox_y_position(self, prov_item, default: float = 999999.0) -> float:
+        """
+        bbox에서 y좌표(top)를 안전하게 추출한다.
+        
+        Args:
+            prov_item: Docling provenance 객체
+            default: bbox가 없을 때 반환할 기본값
+            
+        Returns:
+            y좌표 (top 좌표)
+        """
+        try:
+            if hasattr(prov_item, 'bbox') and prov_item.bbox:
+                # Docling bbox는 top, left, bottom, right를 가짐
+                # t (top)이 작을수록 위쪽에 위치
+                return float(prov_item.bbox.t)
+        except (AttributeError, TypeError) as e:
+            print(f"[PDFReceiver] bbox 추출 실패: {e}, 기본값 {default} 사용", flush=True)
+        return default
+    
+    def _convert_image_to_bytes(self, pil_image) -> bytes | None:
+        """
+        PIL Image 또는 bytes를 bytes로 변환한다.
+        
+        Args:
+            pil_image: PIL Image 객체 또는 bytes
+            
+        Returns:
+            이미지 bytes 또는 None (실패 시)
+        """
+        try:
+            # 이미 bytes인 경우
+            if isinstance(pil_image, (bytes, bytearray)):
+                return bytes(pil_image)
+            
+            # PIL Image → bytes 변환
+            import io
+            from PIL import Image
+            buffer = io.BytesIO()
+            pil_image.save(buffer, format='PNG')
+            return buffer.getvalue()
+        except Exception as e:
+            print(f"[PDFReceiver] 이미지 변환 실패: {e}", flush=True)
+            return None
+    
+    def _extract_caption(self, pic_item) -> str:
+        """
+        Docling 이미지 객체에서 캡션을 추출한다.
+        
+        Args:
+            pic_item: Docling picture 객체
+            
+        Returns:
+            캡션 문자열 (없으면 빈 문자열)
+        """
+        try:
+            if hasattr(pic_item, 'captions') and pic_item.captions:
+                if hasattr(pic_item.captions[0], 'text'):
+                    caption = pic_item.captions[0].text.strip()
+                    if caption:
+                        return caption
+        except (AttributeError, IndexError, TypeError) as e:
+            print(f"[PDFReceiver] 캡션 추출 실패: {e}", flush=True)
+        return ""
+    
+    def _flush_text_buffer(self, text_buffer: List[str], elements: List[PageElement], page_no: int):
+        """
+        텍스트 버퍼를 PageElement 리스트에 flush한다.
+        
+        Args:
+            text_buffer: 텍스트 버퍼 (수정됨 - flush 후 clear)
+            elements: PageElement 리스트 (수정됨 - 요소 추가)
+            page_no: 페이지 번호
+        """
+        if not text_buffer:
+            return
+        
+        # 버퍼 내용을 하나의 텍스트로 결합
+        text_content = "\n\n".join(text_buffer)
+        
+        # 문단 단위로 분할하여 PageElement 생성
+        for para in re.split(r"\n{2,}", text_content):
+            if para.strip():
+                elements.append(PageElement("text", page_no, para.strip()))
+        
+        # 버퍼 클리어
+        text_buffer.clear()
 
     async def fetch_and_extract_elements(self, url: str) -> List[PageElement]:
         """
@@ -166,47 +254,54 @@ class PDFReceiver:
         
         # 페이지별로 요소를 그룹화 (bbox 포함)
         from collections import defaultdict
-        page_items = defaultdict(lambda: {"items": []})  # items: [(y_position, type, data), ...]
+        page_items = defaultdict(lambda: {"items": []})  # items: [(y_position, idx, type, data), ...]
         
         # 1. 텍스트 추출 (bbox 정보 포함)
         if hasattr(doc, 'texts'):
             print(f"[PDFReceiver] 텍스트 요소 추출 중: {len(doc.texts)}개", flush=True)
-            for text_item in doc.texts:
-                if text_item.prov:
+            for idx, text_item in enumerate(doc.texts):
+                try:
+                    if not text_item.prov:
+                        continue
+                    
                     page_no = text_item.prov[0].page_no
+                    
                     # 텍스트가 있는 경우만 추가
                     if hasattr(text_item, 'text') and text_item.text.strip():
-                        # bbox가 있으면 y좌표 추출, 없으면 큰 값(끝으로 배치)
-                        y_pos = text_item.prov[0].bbox.t if hasattr(text_item.prov[0], 'bbox') and text_item.prov[0].bbox else 999999
-                        page_items[page_no]["items"].append((y_pos, "text", text_item.text.strip()))
+                        # bbox 안전하게 추출
+                        y_pos = self._get_bbox_y_position(text_item.prov[0], default=idx * 1000)
+                        page_items[page_no]["items"].append((y_pos, idx, "text", text_item.text.strip()))
+                except Exception as e:
+                    print(f"[PDFReceiver] 텍스트 요소 {idx} 처리 중 오류: {e}", flush=True)
+                    continue
         
         # 2. 이미지 추출 (bbox 정보 포함)
         if hasattr(doc, 'pictures'):
             print(f"[PDFReceiver] 이미지 요소 추출 중: {len(doc.pictures)}개", flush=True)
-            for pic_item in doc.pictures:
-                if pic_item.prov:
+            for idx, pic_item in enumerate(doc.pictures):
+                try:
+                    if not pic_item.prov:
+                        continue
+                    
                     page_no = pic_item.prov[0].page_no
+                    
                     # 이미지가 있는 경우만 추가
                     if hasattr(pic_item, 'image') and pic_item.image:
-                        # base64 data-URI로 변환
-                        if isinstance(pic_item.image.pil_image, bytes):
-                            img_bytes = pic_item.image.pil_image
-                        else:
-                            # PIL Image → bytes
-                            import io
-                            from PIL import Image
-                            buffer = io.BytesIO()
-                            pic_item.image.pil_image.save(buffer, format='PNG')
-                            img_bytes = buffer.getvalue()
+                        # PIL Image → bytes 변환 (안전하게)
+                        img_bytes = self._convert_image_to_bytes(pic_item.image.pil_image)
+                        if not img_bytes:
+                            print(f"[PDFReceiver] 이미지 {idx} 변환 실패 (페이지 {page_no})", flush=True)
+                            continue
                         
                         # 캡션 추출 (있으면)
-                        caption = ""
-                        if hasattr(pic_item, 'captions') and pic_item.captions:
-                            caption = pic_item.captions[0].text if hasattr(pic_item.captions[0], 'text') else ""
+                        caption = self._extract_caption(pic_item)
                         
-                        # bbox가 있으면 y좌표 추출, 없으면 큰 값(끝으로 배치)
-                        y_pos = pic_item.prov[0].bbox.t if hasattr(pic_item.prov[0], 'bbox') and pic_item.prov[0].bbox else 999999
-                        page_items[page_no]["items"].append((y_pos, "image", (img_bytes, caption)))
+                        # bbox 안전하게 추출
+                        y_pos = self._get_bbox_y_position(pic_item.prov[0], default=999999 + idx)
+                        page_items[page_no]["items"].append((y_pos, 100000 + idx, "image", (img_bytes, caption)))
+                except Exception as e:
+                    print(f"[PDFReceiver] 이미지 요소 {idx} 처리 중 오류: {e}", flush=True)
+                    continue
         
         # 3. 페이지별로 PageElement 생성 (bbox 순서대로)
         print(f"[PDFReceiver] 페이지별 요소 생성 시작: {len(page_items)}개 페이지", flush=True)
@@ -214,52 +309,49 @@ class PDFReceiver:
         for page_no in sorted(page_items.keys()):
             items = page_items[page_no]["items"]
             
-            # ✅ bbox의 y좌표(top) 기준으로 정렬 - 원본 PDF의 배치 유지
-            sorted_items = sorted(items, key=lambda x: x[0])
+            # ✅ bbox의 y좌표(top) + idx 기준으로 정렬 - 원본 PDF의 배치 유지
+            # y_pos가 같을 경우 idx로 순서 보장
+            sorted_items = sorted(items, key=lambda x: (x[0], x[1]))
             
-            # 이미지 카운터 초기화
+            # 이미지 카운터 초기화 (1부터 시작)
             image_counter = 1
             
             # 통계
-            num_texts = sum(1 for _, item_type, _ in sorted_items if item_type == "text")
-            num_images = sum(1 for _, item_type, _ in sorted_items if item_type == "image")
+            num_texts = sum(1 for _, _, item_type, _ in sorted_items if item_type == "text")
+            num_images = sum(1 for _, _, item_type, _ in sorted_items if item_type == "image")
             print(f"[PDFReceiver] 페이지 {page_no} 처리: 텍스트 {num_texts}개, 이미지 {num_images}개 (bbox 정렬됨)", flush=True)
             
             # bbox 순서대로 텍스트와 이미지를 처리
             text_buffer = []
+            buffer_size_threshold = 1000  # 텍스트 버퍼 크기 제한 (1000자)
             
-            for y_pos, item_type, data in sorted_items:
+            for y_pos, idx, item_type, data in sorted_items:
                 if item_type == "text":
                     # 텍스트 추가
                     text_buffer.append(data)
                     
+                    # 버퍼가 크면 중간 flush (너무 긴 텍스트 블록 방지)
+                    current_buffer_size = sum(len(t) for t in text_buffer)
+                    if current_buffer_size > buffer_size_threshold:
+                        self._flush_text_buffer(text_buffer, elements, page_no)
+                    
                 elif item_type == "image":
                     # 이미지를 만나면 텍스트 버퍼를 먼저 flush
-                    if text_buffer:
-                        text_content = "\n\n".join(text_buffer)
-                        for para in re.split(r"\n{2,}", text_content):
-                            if para.strip():
-                                elements.append(PageElement("text", page_no, para.strip()))
-                        text_buffer.clear()
+                    self._flush_text_buffer(text_buffer, elements, page_no)
                     
-                    # 이미지 데이터 추가 (플레이스홀더는 semantic_chunker가 자동 추가)
+                    # 이미지 데이터 추가
                     img_bytes, caption = data
                     img_id = f"IMG_{page_no}_{image_counter}"
                     
                     print(f"[PDFReceiver] 이미지 추가: {img_id} (y={y_pos:.1f})", flush=True)
                     
-                    # ✅ 이미지 데이터만 추가 (플레이스홀더는 별도 추가 안 함)
-                    # semantic_chunker가 figure를 보고 [IMG_X_Y] 플레이스홀더를 텍스트에 자동 삽입
+                    # ✅ 이미지 데이터 추가 (semantic_chunker가 플레이스홀더 자동 삽입)
                     elements.append(PageElement("figure", page_no, img_bytes, caption=caption or "Figure", id=img_id))
                     
                     image_counter += 1
             
             # 마지막 남은 텍스트 처리
-            if text_buffer:
-                text_content = "\n\n".join(text_buffer)
-                for para in re.split(r"\n{2,}", text_content):
-                    if para.strip():
-                        elements.append(PageElement("text", page_no, para.strip()))
+            self._flush_text_buffer(text_buffer, elements, page_no)
 
         if not elements:
             raise ValueError("Docling PDF 파싱 결과가 없습니다")

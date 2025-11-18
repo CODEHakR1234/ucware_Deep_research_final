@@ -4,11 +4,12 @@ from app.infra.semantic_grouper import get_semantic_grouper
 from .guide_graph_builder import GuideGraphBuilder, GuideState
 
 # 싱글턴 그래프 인스턴스 생성
-# 튜토리얼 생성은 긴 응답이 필요하므로 max_tokens를 크게 설정 (8000 토큰 ≈ 6000자)
+# 튜토리얼 생성은 긴 응답이 필요하므로 max_tokens를 크게 설정 (4000 토큰 ≈ 3000자)
+# 주의: LLM 서버(vLLM 등)가 max_tokens를 제한할 수 있음
 _graph = GuideGraphBuilder(
     loader=PdfLoader(),
     grouper=get_semantic_grouper(),
-    llm=LlmEngine(temperature=0.2, max_tokens=8000)
+    llm=LlmEngine(temperature=0.2, max_tokens=4000)
 ).build()
 
 class GuideServiceGraph:
