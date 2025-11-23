@@ -160,3 +160,140 @@ ___
     ├── main.py                   # FastAPI 진입점
     └── prompts.py                # 프롬프트 문자열 모음
 ```
+
+## V. LangGraph 파이프라인 - ColPali 및 Docling
+___
+
+- PDF 요약과 질의 파이프라인은 `app/service/summary_graph_builder.py` 에 정의된 **LangGraph 기반 상태 머신**으로 동작합니다.
+- `RAG_router` 노드에서 사용자의 질의 유형을 판별하여, 아래 3가지 경로 중 하나로 분기합니다.
+  - **텍스트 RAG 경로** - 문서 벡터 검색용 노드 `retrieve_vector`
+  - **웹과 문서 하이브리드 경로** - 웹 검색과 문서 RAG를 함께 사용하는 노드 `retrieve_web`
+  - **구조적 질의 경로 - 그림, 표, 페이지 등** - ColPali 비전 RAG 노드 `retrieve_colpali`
+
+### 1. PDF 요약과 질의 LangGraph 구조
+
+아래는 PDF 요약과 질의에 사용되는 LangGraph의 주요 노드와 분기 구조입니다.
+
+```mermaid
+flowchart LR
+    E[entry\n요청 초기화/캐시 확인]
+    L[load\nPDF 로드]
+    EMB[embed\n임베딩/벡터스토어 저장]
+    R[RAG_router\n질문 유형/ColPali/Web 판단]
+
+    RV[retrieve_vector\n텍스트 RAG 검색]
+    RW[retrieve_web\n웹+문서 혼합 검색]
+    RC[retrieve_colpali\nColPali 비전 RAG]
+    S[summarize\n전체 요약]
+
+    G[grade\n관련 청크 필터링]
+    GEN[generate\n답변 생성]
+    V[verify\n답변 검증]
+    RF[refine\n질문 리파인]
+    SV[save\n요약 캐시 저장]
+    T[translate\n언어 번역]
+    F[finish\n로그 기록/종료]
+
+    %% entry 분기
+    E -->|캐시 HIT & SUMMARY_ALL| T
+    E -->|캐시 HIT & 질의 모드| R
+    E -->|임베딩 없음| L
+    E -->|임베딩 있음| R
+    E -->|에러| F
+
+    %% 로딩/임베딩
+    L --> EMB
+    EMB --> R
+
+    %% RAG 라우터 분기
+    R -->|SUMMARY_ALL| S
+    R -->|구조적 질의 - 표, 그림, 페이지| RC
+    R -->|웹 검색 필요| RW
+    R -->|문서 기반 RAG| RV
+
+    %% 요약 모드
+    S --> SV
+    SV --> T
+
+    %% 텍스트/웹 RAG 경로
+    RV --> G
+    RW --> G
+
+    G -->|충분한 근거| GEN
+    G -->|근거 부족/미관련| T
+
+    GEN --> V
+
+    %% 검증 단계 - 현재 구현에서는 질의 모드에서만 사용
+    V -->|답변 양호 - 질의 모드| T
+    V -->|답변 부족 또는 불충분| RF
+    V -->|에러 발생| F
+
+    %% 리파인
+    RF -->|리파인 쿼리로 재시도| R
+    RF -->|비관련/리파인 한계| T
+
+    %% ColPali 경로
+    RC -->|답변 생성 성공| T
+    RC -->|에러| F
+
+    %% 종료
+    T --> F
+```
+
+### 2. 채팅 요약과 질의 LangGraph 구조
+
+- 채팅 로그 기반 요약/질의 파이프라인은 `app/service/chat_graph_builder.py` 의 `ChatGraphBuilder` 로 정의되며, `chat_summary_graph.py` 를 통해 FastAPI에서 사용됩니다.
+
+```mermaid
+flowchart LR
+    E[entry\n요약/질의 모드 판별]
+    S[summarize\n채팅 로그 요약]
+    A[answer_node\n채팅 기반 1차 답변 생성]
+    V[verify\n답변 적절성 검증]
+    R[refine\n답변 리파인]
+    T[translate\n요약/답변 번역]
+    F[finish\n종료]
+
+    %% entry 분기
+    E -->|query == SUMMARY_ALL| S
+    E -->|그 외| A
+
+    %% 요약 모드
+    S --> T
+
+    %% 질의 모드
+    A --> V
+
+    %% 검증과 리파인 루프
+    V -->|정확함 - true| T
+    V -->|부족하거나 부분적으로 부정확함 - false| R
+    V -->|전혀 무관함 - bad 또는 에러| F
+
+    R -->|리파인 답변 재검증| V
+    R -->|에러| F
+
+    %% 번역과 종료
+    T --> F
+```
+
+### 3. Docling 기반 PDF 전처리 파이프라인
+
+- PDF 콘텐츠는 LangGraph에 들어오기 전에 `app/infra/pdf_receiver.py` 와 `app/infra/semantic_chunker.py` 를 통해 Docling 기반 전처리를 거칩니다.
+- 전체 흐름은 아래와 같습니다.
+  - PDF URL 입력
+  - `PDFReceiver` 가 Docling을 사용해 텍스트와 그림 정보를 가진 `PageElement` 리스트로 변환
+  - `SemanticChunker` 가 `PageElement` 리스트를 의미 단위 청크로 묶어서 텍스트 청크 또는 `PageChunk` 리스트로 변환
+  - `PdfLoader` 가 이 청크들을 LangGraph의 `load` 노드에서 사용할 수 있도록 반환
+
+```mermaid
+flowchart LR
+    U[PDF URL]
+    R[PDFReceiver - Docling 변환]
+    E[PageElement 리스트]
+    C[SemanticChunker - 의미 단위 청킹]
+    CH[텍스트 청크 또는 PageChunk 리스트]
+    G[Summary LangGraph - entry와 load 노드]
+
+    U --> R --> E --> C --> CH --> G
+```
