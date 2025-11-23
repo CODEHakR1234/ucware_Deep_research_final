@@ -234,8 +234,11 @@ class Colpali:
                 except:
                     pass
 
-    async def retrieve(self, url, query):
+    async def retrieve(self, url, query, topk=None):
         """쿼리와 유사한 페이지 검색 (MaxSim 기반 re-ranking)"""
+        if topk is None:
+            topk = TOPK_PAGES
+            
         self._ensure_indexed(url)
         q_emb = self.embed_query(query)
 
@@ -243,14 +246,15 @@ class Colpali:
         coll_name = _get_collection_name(url)
         col = client.get_or_create_collection(coll_name)
         
-        if col.count() == 0:
+        count = col.count()
+        if count == 0:
             return []
 
         groups = defaultdict(list)
         for q_tok in q_emb:
             res = col.query(
                 query_embeddings=[q_tok.numpy().tolist()],
-                n_results=PER_TOKEN_CANDIDATES,
+                n_results=min(PER_TOKEN_CANDIDATES, count),
                 include=["embeddings", "metadatas", "documents"],
             )
             for e, m, d in zip(res["embeddings"][0], res["metadatas"][0], res["documents"][0]):
@@ -271,12 +275,13 @@ class Colpali:
             scored.append({"doc_id": doc_id, "page": page, "image": img_path, "score": score})
 
         scored.sort(key=lambda x: x["score"], reverse=True)
-        return scored[:TOPK_PAGES]
+        return scored[:topk]
 
-    async def generate(self, url, question, *, topk=2, vlm_name=VLM_NAME,
+    async def generate(self, url, question, *, topk=3, vlm_name=VLM_NAME,
                        temperature=0.2, top_p=0.9, max_new_tokens=256):
         """검색된 페이지 이미지를 VLM에 입력해 답변 생성"""
-        hits = await self.retrieve(url, question)
+        hits = await self.retrieve(url, question, topk=topk * 3)
+        
         if not hits:
             return {
                 "answer": "No relevant pages were retrieved.",
@@ -298,11 +303,9 @@ class Colpali:
                 "content": [{
                     "type": "text",
                     "text": (
-                        "You answer questions about the provided page images.\n"
-                        "FORMAT:\n"
-                        "1) One short sentence that directly answers the question.\n"
-                        "2) Then a line 'Evidence: [page X, page Y]'.\n"
-                        "If the answer is not visible, say exactly: 'Not found in the retrieved pages.'"
+                        "You are a helpful assistant that analyzes document page images and answers questions.\n"
+                        "Carefully examine all provided images and answer based on what you see.\n"
+                        "If you find relevant information, provide a detailed answer."
                     ),
                 }],
             },
@@ -312,8 +315,9 @@ class Colpali:
                     [{"type": "image"} for _ in imgs] + [{
                         "type": "text",
                         "text": (
-                            f"Question: {question}\n"
-                            f"Only use the images. Pages: {', '.join([f'[page {p}]' for p in used_pages])}"
+                            f"Question: {question}\n\n"
+                            f"These are pages {', '.join([str(p) for p in used_pages])} from the document.\n"
+                            f"Please analyze the images carefully and answer the question."
                         ),
                     }]
                 ),

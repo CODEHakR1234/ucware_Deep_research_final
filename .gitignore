@@ -11,7 +11,7 @@ chroma_db/
 summary_cache.db
 dump.rdb
 nohup.out
-copali_images/
+colpali_images/
 
 !summary_api_full_guide.md
 !summary_api_full_guide.pdf
