@@ -342,7 +342,7 @@ class SummaryGraphBuilder:
                 # 지연 임포트로 서버 기동 지연 최소화
                 from app.infra.colpali import Colpali
                 svc = Colpali()
-                out = await svc.generate(st.url, st.query, topk=1)
+                out = await svc.generate(st.url, st.query, topk=3)
                 st.answer = out.get("answer")
                 used_pages = out.get("used_pages", [])
                 st.log.append(f"colpali_used_pages={used_pages}")

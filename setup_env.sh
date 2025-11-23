@@ -40,6 +40,16 @@ echo -n "🎮 사용할 GPU 번호를 입력하세요 (여러 장이면 콤마, 
 read -r GPU_NUMBER
 GPU_NUMBER=${GPU_NUMBER:-0}
 
+# ──────────────── Hugging Face 캐시 경로 설정 ────────────────
+echo ""
+echo -n "📦 Hugging Face 캐시 디렉토리 경로를 입력하세요 (기본: /home/work/vllm-data-storage/huggingface_cache/huggingface): "
+read -r HF_CACHE_DIR
+HF_CACHE_DIR=${HF_CACHE_DIR:-/home/work/vllm-data-storage/huggingface_cache/huggingface}
+
+# 캐시 디렉토리 생성
+mkdir -p "$HF_CACHE_DIR"
+echo "✅ Hugging Face 캐시 디렉토리: $HF_CACHE_DIR"
+
 # ──────────────── 캡셔닝 백엔드 선택 ────────────────
 echo ""
 echo "🖼️ 사용할 캡셔닝 백엔드를 선택하세요:"
@@ -111,6 +121,10 @@ CAPTION_BACKEND=$CAPTION_BACKEND
 CAPTION_API_BASE=$CAPTION_API_BASE
 CAPTION_OPENAI_MODEL=$CAPTION_OPENAI_MODEL
 DISABLE_CAPTIONING=$DISABLE_CAPTIONING
+# ───────── Hugging Face 캐시 설정 ─────────
+HF_HOME=$HF_CACHE_DIR
+TRANSFORMERS_CACHE=$HF_CACHE_DIR
+HF_HUB_CACHE=$HF_CACHE_DIR/hub
 EOF
 
 echo "[✔] 환경 구성이 완료되었습니다."
