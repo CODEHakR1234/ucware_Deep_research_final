@@ -7,6 +7,7 @@ UCWARE LLM API는 PDF 문서 및 채팅 기록에 대한 요약 및 질의응답
 ___
 - PDF 문서 / 채팅 기록 요약: PDF 문서 및 채팅 데이터를 업로드하면 핵심 내용을 자동으로 요약하여 제공합니다.
 - 사용자 질의응답: 문서나 대화 기록을 바탕으로 한 Q&A 기능을 제공합니다. Tavily API Key가 제공될 경우 웹 검색 또한 가능합니다.
+- 멀티모달 PDF 자습서 생성: PDF 문서의 텍스트와 이미지를 활용하여 학습자 친화적인 자습서를 자동으로 생성합니다. 이미지 캡션 생성 및 의미 단위 그룹화를 통해 체계적인 학습 가이드를 제공합니다.
 - 캐싱 및 재사용: 동일한 파일에 대한 반복 요청 시 결과를 Redis 캐시에서 즉시 반환하여 응답 속도를 높입니다. 벡터 임베딩도 최초 1회 생성 후 DB에 저장되므로 이후부터 빠르게 검색합니다.  
 - 피드백 수집: 사용자로부터 요약/답변에 대한 평점(1~5)과 의견을 받아 품질 향상에 활용할 수 있습니다.
 
@@ -137,6 +138,31 @@ ___
   "id": "fb_123e4567-e89b-12d3-a456-426614174000",
   "created_at": "2025-07-28T02:15:30.123456",
   "ok": true
+}
+```
+
+### 4. 멀티모달 PDF 자습서 생성 (POST `/api/tutorial`)
+- PDF 문서를 기반으로 이미지와 텍스트를 포함한 자습서를 자동 생성합니다.
+- 생성된 자습서는 Markdown 형식으로 반환되며, 이미지는 base64 data-URI로 임베딩됩니다.
+- 지원 언어: `ko` (한국어), `en` (영어), `ja` (일본어), `zh` (중국어)
+- 요청 바디로 `file_id`, `pdf_url`, `lang` 필드를 전달합니다.
+
+- 요청 바디 예문:
+```json
+{
+  "file_id": "fid_abc123",
+  "pdf_url": "https://example.com/sample.pdf",
+  "lang": "ko"
+}
+```
+
+- 응답 바디 예문:
+```json
+{
+  "file_id": "fid_abc123",
+  "tutorial": "# 자습서 가이드\n\n## 섹션 1\n\n이 섹션에서는...\n\n![이미지 캡션](data:image/png;base64,...)\n\n...",
+  "cached": false,
+  "log": ["load attempt 1 [250ms]", "generate attempt 1 [1200ms]", "combine attempt 1 [800ms]"]
 }
 ```
 
@@ -296,4 +322,37 @@ flowchart LR
     G[Summary LangGraph - entry와 load 노드]
 
     U --> R --> E --> C --> CH --> G
+```
+
+### 4. 멀티모달 PDF 자습서 생성 LangGraph 구조
+
+- PDF 자습서 생성 파이프라인은 `app/service/guide_graph_builder.py` 의 `GuideGraphBuilder` 로 정의되며, `guide_service_graph.py` 를 통해 FastAPI에서 사용됩니다.
+- PDF의 텍스트와 이미지를 함께 처리하여 학습자 친화적인 자습서를 생성합니다.
+- 전체 흐름은 아래와 같습니다:
+  - PDF 로드: Docling을 통해 텍스트와 이미지를 추출하고, VLM을 사용해 이미지 캡션 생성
+  - 의미 단위 그룹화: 유사도 기반으로 청크들을 학습 단위로 그룹화
+  - 섹션 생성: 각 그룹에 대해 병렬로 자습서 섹션 생성 (이미지 포함)
+  - 번역 및 통합: 생성된 섹션들을 병렬로 번역하고 하나의 Markdown 문서로 통합
+  - 이미지 임베딩: 이미지 ID를 base64 data-URI로 교체하여 최종 자습서 완성
+
+```mermaid
+flowchart LR
+    L[load\nPDF 로드 및 이미지 캡션 생성]
+    G[generate\n의미 단위 그룹화 및 섹션 생성]
+    C[combine\n섹션 번역 및 통합]
+    F[finish\n이미지 임베딩 및 완성]
+
+    %% 로드 단계
+    L -->|PageChunk 리스트| G
+    L -->|에러| F
+
+    %% 생성 단계
+    G -->|섹션 리스트| C
+    G -->|에러| F
+
+    %% 통합 단계
+    C -->|번역된 섹션들| F
+
+    %% 종료
+    F -->|최종 자습서| END[완료]
 ```
